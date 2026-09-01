@@ -1,0 +1,8 @@
+.git
+.venv
+.env
+__pycache__
+*.pyc
+.dagster_home
+README.md
+ARCHITECTURE.md
