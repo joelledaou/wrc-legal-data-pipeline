@@ -5,7 +5,7 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
     ports:
-      - "27017:27017"
+      - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -21,8 +21,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # web console
+      - "${MINIO_API_PORT:-9000}:9000"       # S3 API
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"   # web console
     volumes:
       - minio-data:/data
     healthcheck:
@@ -39,7 +39,7 @@ services:
     environment:
       DAGSTER_HOME: /opt/dagster_home
     ports:
-      - "3000:3000"
+      - "${DAGSTER_PORT:-3000}:3000"
     volumes:
       - dagster-home:/opt/dagster_home
     depends_on:

@@ -55,6 +55,9 @@ docker compose up -d --build
 ```
 
 This starts MongoDB, MinIO, and the Dagster UI at <http://localhost:3000>.
+(All published ports are configurable in `.env` — `MONGO_PORT`,
+`MINIO_API_PORT`, `MINIO_CONSOLE_PORT`, `DAGSTER_PORT` — the URLs below assume
+the defaults.)
 
 **3. Run the pipeline** — either through Dagster (recommended):
 
