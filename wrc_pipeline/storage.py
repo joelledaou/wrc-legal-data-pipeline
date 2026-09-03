@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import io
-
 from minio import Minio
 from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
@@ -37,10 +35,6 @@ def get_minio_client(settings: Settings) -> Minio:
 def ensure_bucket(client: Minio, bucket: str) -> None:
     if not client.bucket_exists(bucket):
         client.make_bucket(bucket)
-
-
-def put_object(client: Minio, bucket: str, key: str, content: bytes, content_type: str) -> None:
-    client.put_object(bucket, key, io.BytesIO(content), length=len(content), content_type=content_type)
 
 
 def get_object(client: Minio, bucket: str, key: str) -> bytes:

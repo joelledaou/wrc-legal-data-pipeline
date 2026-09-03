@@ -35,7 +35,8 @@ def build_partitions(start_date: date, end_date: date, size: str = "monthly") ->
 
     if size == "monthly":
         while cursor <= last_day:
-            month_end = _next_month(date(cursor.year, cursor.month, 1)) - timedelta(days=1)
+            next_month = date(cursor.year + 1, 1, 1) if cursor.month == 12 else date(cursor.year, cursor.month + 1, 1)
+            month_end = next_month - timedelta(days=1)
             chunk_end = min(month_end, last_day)
             partitions.append(Partition(cursor.strftime("%Y-%m"), cursor, chunk_end))
             cursor = chunk_end + timedelta(days=1)
@@ -49,7 +50,3 @@ def build_partitions(start_date: date, end_date: date, size: str = "monthly") ->
         raise ValueError(f"Unknown partition size '{size}'. Use monthly, weekly, or daily.")
 
     return partitions
-
-
-def _next_month(d: date) -> date:
-    return date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)

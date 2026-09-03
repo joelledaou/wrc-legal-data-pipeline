@@ -16,6 +16,7 @@ overwrites the object and updates the hash.
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import posixpath
 import re
@@ -25,14 +26,13 @@ from urllib.parse import urlparse
 from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
 
-from wrc_pipeline.config import get_settings
+from wrc_pipeline.config import Settings
 from wrc_pipeline.logging_utils import log_event
 from wrc_pipeline.storage import (
     ensure_bucket,
     ensure_landing_indexes,
     get_minio_client,
     get_mongo_collection,
-    put_object,
 )
 
 logger = logging.getLogger("wrc.ingest")
@@ -53,7 +53,7 @@ class MongoMinioStorePipeline:
         return cls(crawler)
 
     def open_spider(self):
-        self.cfg = get_settings()
+        self.cfg = Settings()
         self.landing = get_mongo_collection(self.cfg, self.cfg.landing_collection)
         self.minio = get_minio_client(self.cfg)
         ensure_landing_indexes(self.landing)
@@ -79,7 +79,8 @@ class MongoMinioStorePipeline:
                 stats.unchanged += 1
                 changed = False
             else:
-                put_object(self.minio, self.cfg.landing_bucket, file_path, content, content_type)
+                self.minio.put_object(self.cfg.landing_bucket, file_path, io.BytesIO(content),
+                                      length=len(content), content_type=content_type)
                 stats.downloaded += 1
                 changed = True
 

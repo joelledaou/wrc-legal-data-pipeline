@@ -1,8 +1,8 @@
 """Scrapy settings, driven by environment configuration (see wrc_pipeline.config)."""
 
-from wrc_pipeline.config import get_settings
+from wrc_pipeline.config import Settings
 
-_cfg = get_settings()
+_cfg = Settings()
 
 BOT_NAME = "wrc_pipeline"
 SPIDER_MODULES = ["wrc_pipeline.scraper.spiders"]

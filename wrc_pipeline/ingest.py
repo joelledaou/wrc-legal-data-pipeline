@@ -13,14 +13,14 @@ from datetime import date
 from scrapy.crawler import CrawlerProcess
 from scrapy.settings import Settings as ScrapySettings
 
-from wrc_pipeline.config import get_settings
+from wrc_pipeline.config import Settings
 from wrc_pipeline.logging_utils import setup_json_logging
 from wrc_pipeline.scraper.spiders.decisions import DecisionsSpider
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    cfg = get_settings()
+    cfg = Settings()
     setup_json_logging(cfg.log_level)
 
     scrapy_settings = ScrapySettings()

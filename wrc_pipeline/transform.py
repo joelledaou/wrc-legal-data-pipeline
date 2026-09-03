@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import logging
 import posixpath
 import re
@@ -32,7 +33,7 @@ from datetime import date, datetime, timezone
 
 from bs4 import BeautifulSoup
 
-from wrc_pipeline.config import DECISION_CONTENT_SELECTORS, get_settings
+from wrc_pipeline.config import DECISION_CONTENT_SELECTORS, Settings
 from wrc_pipeline.logging_utils import log_event, setup_json_logging
 from wrc_pipeline.storage import (
     ensure_bucket,
@@ -40,7 +41,6 @@ from wrc_pipeline.storage import (
     get_mongo_collection,
     get_object,
     object_exists,
-    put_object,
 )
 
 logger = logging.getLogger("wrc.transform")
@@ -59,13 +59,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="Range end, exclusive (YYYY-MM-DD)")
     args = parser.parse_args(argv)
 
-    setup_json_logging(get_settings().log_level)
+    setup_json_logging(Settings().log_level)
     stats = transform_range(args.start_date, args.end_date)
     return 0 if stats["failed"] == 0 else 2
 
 
 def transform_range(start_date: date, end_date: date) -> dict:
-    cfg = get_settings()
+    cfg = Settings()
     landing = get_mongo_collection(cfg, cfg.landing_collection)
     processed = get_mongo_collection(cfg, cfg.processed_collection)
     minio = get_minio_client(cfg)
@@ -106,7 +106,8 @@ def transform_range(start_date: date, end_date: date) -> dict:
                 content_type = record.get("content_type", "application/octet-stream")
                 stats["passed_through"] += 1
 
-            put_object(minio, cfg.processed_bucket, key, content, content_type)
+            minio.put_object(cfg.processed_bucket, key, io.BytesIO(content), length=len(content),
+                             content_type=content_type)
 
             new_record = {k: v for k, v in record.items() if k != "_id"}
             new_record.update(

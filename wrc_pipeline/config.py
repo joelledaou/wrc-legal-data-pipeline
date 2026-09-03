@@ -79,10 +79,6 @@ class Settings:
     # --- Logging ---
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
 
-    @property
-    def search_url(self) -> str:
-        return self.base_url.rstrip("/") + self.search_path
-
     def selected_bodies(self) -> dict[str, int]:
         """Bodies to scrape: the WRC_BODIES env subset, or all four by default."""
         if not self.bodies.strip():
@@ -94,10 +90,6 @@ class Settings:
                 raise ValueError(f"Unknown body '{key}'. Valid bodies: {', '.join(WRC_BODIES)}")
             selected[key] = WRC_BODIES[key]
         return selected
-
-
-def get_settings() -> Settings:
-    return Settings()
 
 
 def _env_bool(name: str, default: bool) -> bool:

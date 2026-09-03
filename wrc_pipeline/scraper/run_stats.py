@@ -15,10 +15,7 @@ class SliceStats:
     skipped: int = 0      # known records not re-fetched (idempotent fast path)
     attachment_unavailable: int = 0  # stored the stub page because its PDF/DOC attachment failed
     failed: list[dict] = field(default_factory=list)  # {url, error, ...} per failure
-
-    @property
-    def scraped(self) -> int:
-        return self.downloaded + self.unchanged
+    # "scraped" in the summary = downloaded + unchanged (documents successfully fetched).
 
 
 class RunStats:
@@ -34,7 +31,7 @@ class RunStats:
                 "partition": partition,
                 "body": body,
                 "found": s.found,
-                "scraped": s.scraped,
+                "scraped": s.downloaded + s.unchanged,
                 "skipped_existing": s.skipped,
                 "attachment_unavailable": s.attachment_unavailable,
                 "failed": len(s.failed),
@@ -51,7 +48,7 @@ class RunStats:
             "failures": failures,
             "totals": {
                 "found": sum(s.found for s in self._slices.values()),
-                "scraped": sum(s.scraped for s in self._slices.values()),
+                "scraped": sum(s.downloaded + s.unchanged for s in self._slices.values()),
                 "downloaded": sum(s.downloaded for s in self._slices.values()),
                 "unchanged": sum(s.unchanged for s in self._slices.values()),
                 "skipped_existing": sum(s.skipped for s in self._slices.values()),

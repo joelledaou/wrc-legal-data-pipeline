@@ -42,7 +42,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import scrapy
 from scrapy.spidermiddlewares.httperror import HttpError
 
-from wrc_pipeline.config import DECISION_CONTENT_SELECTORS, WRC_BODIES, get_settings
+from wrc_pipeline.config import DECISION_CONTENT_SELECTORS, WRC_BODIES, Settings
 from wrc_pipeline.logging_utils import log_event
 from wrc_pipeline.partitions import Partition, build_partitions
 from wrc_pipeline.scraper.items import DecisionItem
@@ -88,7 +88,7 @@ class DecisionsSpider(scrapy.Spider):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.cfg = get_settings()
+        self.cfg = Settings()
         self.partitions = build_partitions(
             date.fromisoformat(start_date),
             date.fromisoformat(end_date),
@@ -178,13 +178,15 @@ class DecisionsSpider(scrapy.Spider):
             return
 
         doc_url = response.urljoin(href)
+        # The site's text carries embedded newlines/whitespace runs; collapse them to single spaces.
+        identifier = row.css("span.refNO::text").get() or row.css("h2.title a::text").get() or ""
+        title = row.css("h2.title a::text").get() or ""
+        description = row.css("p.description::text").get() or row.css("p.description::attr(title)").get() or ""
         record = {
             "record_id": urlparse(doc_url).path,
-            "identifier": _clean(row.css("span.refNO::text").get() or row.css("h2.title a::text").get()),
-            "title": _clean(row.css("h2.title a::text").get()),
-            "description": _clean(
-                row.css("p.description::text").get() or row.css("p.description::attr(title)").get()
-            ),
+            "identifier": " ".join(identifier.split()),
+            "title": " ".join(title.split()),
+            "description": " ".join(description.split()),
             "published_date": self._parse_date(row.css("span.date::text").get()),
             "body": body_name,
             "doc_url": doc_url,
@@ -196,7 +198,7 @@ class DecisionsSpider(scrapy.Spider):
             stats.skipped += 1
             self._landing.update_one(
                 {"_id": record["record_id"]},
-                {"$set": {"last_seen_at": _utcnow()}},
+                {"$set": {"last_seen_at": datetime.now(timezone.utc).isoformat()}},
             )
             return
 
@@ -323,7 +325,7 @@ class DecisionsSpider(scrapy.Spider):
             "body": str(body_id),
             "pageNumber": str(page),
         }
-        return f"{self.cfg.search_url}?{urlencode(params)}"
+        return f"{self.cfg.base_url.rstrip('/')}{self.cfg.search_path}?{urlencode(params)}"
 
     def _already_stored(self, record_id: str) -> bool:
         """True if the record exists in Mongo with a hash and its file is in MinIO."""
@@ -423,12 +425,3 @@ class DecisionsSpider(scrapy.Spider):
         if failure.check(HttpError):
             return f"HTTP {failure.value.response.status}"
         return f"{failure.type.__name__}: {failure.getErrorMessage()}"
-
-
-def _clean(text: str | None) -> str:
-    """Collapse the site's embedded newlines/whitespace runs to single spaces."""
-    return " ".join((text or "").split())
-
-
-def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
