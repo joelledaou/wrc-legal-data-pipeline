@@ -27,7 +27,8 @@ orchestrated with Dagster. Everything runs in Docker.
 - **Transformation** reads a date range back from Mongo, strips WRC page
   chrome from HTML files with BeautifulSoup (PDF/DOC pass through unchanged),
   renames every file to `<identifier>.<ext>`, writes it to the `wrc-processed`
-  bucket, and stores the enriched metadata (new path, new hash) in
+  bucket under the same `<body>/<partition_date>/` folder as its landing
+  object, and stores the enriched metadata (new path, new hash) in
   `decisions_processed`. The landing zone is never modified.
 - **Idempotency**: records are keyed by their document URL; re-running a range
   creates no duplicates and skips files already downloaded. File hashes detect

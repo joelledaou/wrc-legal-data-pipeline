@@ -7,7 +7,9 @@ For every landing record whose partition_date falls in [start_date, end_date):
    relevant decision content (navigation, header, footer, cookie banner,
    scripts, etc. stripped) with BeautifulSoup,
 3. the file is renamed to <identifier>.<ext> and written to the processed
-   bucket, its new SHA-256 hash is computed,
+   bucket under the same folder as its landing object
+   (<body>/<partition_date>/<identifier>.<ext>), its new SHA-256 hash is
+   computed,
 4. the enriched metadata (new path, new hash, quality info) is upserted into
    the processed collection.
 
@@ -23,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import logging
+import posixpath
 import re
 import sys
 from datetime import date, datetime, timezone
@@ -81,17 +84,19 @@ def transform_range(start_date: date, end_date: date) -> dict:
     for record in landing.find(query):
         stats["fetched"] += 1
         try:
-            already = processed.find_one({"_id": record["_id"]}, {"source_file_hash": 1, "file_path": 1})
+            extension = "." + record["file_path"].rsplit(".", 1)[-1].lower()
+            key = processed_key(record, extension)
+
+            already = processed.find_one({"_id": record["_id"]}, {"source_file_hash": 1})
             if (
                 already
                 and already.get("source_file_hash") == record["file_hash"]
-                and object_exists(minio, cfg.processed_bucket, already.get("file_path", ""))
+                and object_exists(minio, cfg.processed_bucket, key)
             ):
                 stats["skipped_unchanged"] += 1
                 continue
 
             raw = get_object(minio, cfg.landing_bucket, record["file_path"])
-            extension = "." + record["file_path"].rsplit(".", 1)[-1].lower()
 
             if extension in (".html", ".htm"):
                 content, quality = extract_relevant_html(raw, record.get("identifier", ""))
@@ -102,13 +107,12 @@ def transform_range(start_date: date, end_date: date) -> dict:
                 content_type = record.get("content_type", "application/octet-stream")
                 stats["passed_through"] += 1
 
-            filename = safe_filename(record.get("identifier", ""), record["_id"].split("/")[-1]) + extension
-            put_object(minio, cfg.processed_bucket, filename, content, content_type)
+            put_object(minio, cfg.processed_bucket, key, content, content_type)
 
             new_record = {k: v for k, v in record.items() if k != "_id"}
             new_record.update(
                 file_bucket=cfg.processed_bucket,
-                file_path=filename,
+                file_path=key,
                 file_hash=hashlib.sha256(content).hexdigest(),
                 file_size=len(content),
                 content_type=content_type,
@@ -119,7 +123,7 @@ def transform_range(start_date: date, end_date: date) -> dict:
             )
             processed.update_one({"_id": record["_id"]}, {"$set": new_record}, upsert=True)
             log_event(logger, "record_transformed", level=logging.DEBUG,
-                      identifier=record.get("identifier"), file_path=filename,
+                      identifier=record.get("identifier"), file_path=key,
                       extraction=quality["extraction"])
         except Exception as exc:
             stats["failed"] += 1
@@ -165,6 +169,15 @@ def extract_relevant_html(raw_html: bytes, title: str) -> tuple[bytes, dict]:
         f"<body>\n{content.decode()}\n</body></html>\n"
     )
     return document.encode("utf-8"), quality
+
+
+def processed_key(record: dict, extension: str) -> str:
+    """Processed object key: same folder as the landing object, file renamed to
+    <identifier>.<ext>, so both buckets share one <body>/<partition_date>/
+    layout and a processed file can always be traced back to its body."""
+    folder = posixpath.dirname(record["file_path"])
+    filename = safe_filename(record.get("identifier", ""), record["_id"].split("/")[-1]) + extension
+    return posixpath.join(folder, filename) if folder else filename
 
 
 def safe_filename(identifier: str, fallback: str) -> str:
