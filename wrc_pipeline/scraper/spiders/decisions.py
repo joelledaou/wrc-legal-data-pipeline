@@ -20,10 +20,12 @@ use the file hash to detect content changes.
 
 from __future__ import annotations
 
+import io
 import logging
 import math
 import posixpath
 import re
+import zipfile
 from datetime import date, datetime, timezone
 from urllib.parse import urlencode, urlparse
 
@@ -40,13 +42,21 @@ from wrc_pipeline.storage import get_minio_client, get_mongo_collection, object_
 logger = logging.getLogger("wrc.ingest")
 
 RESULT_COUNT_RE = re.compile(r"of\s+([\d,]+)\s+results?", re.S)
+# Extensions we know how to store and transform. A document that resolves to
+# anything else (by URL suffix or Content-Type) is logged and not yielded.
 KNOWN_EXTENSIONS = {".pdf", ".doc", ".docx", ".html", ".htm"}
 CONTENT_TYPE_EXT = {
     "application/pdf": ".pdf",
     "application/msword": ".doc",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
     "text/html": ".html",
+    "application/xhtml+xml": ".html",
 }
+# Magic bytes per format, used to reject truncated/corrupt downloads and
+# mislabelled responses (e.g. an HTML error page served for a ".pdf" URL).
+PDF_MAGIC = b"%PDF-"
+OLE2_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"  # legacy .doc container
+HTML_TAG_RE = re.compile(rb"<\s*(!doctype\s+html|html|head|body)\b", re.I)
 
 
 class DecisionsSpider(scrapy.Spider):
@@ -201,20 +211,75 @@ class DecisionsSpider(scrapy.Spider):
         )
 
     def parse_document(self, response, record: dict):
-        item = DecisionItem(
+        content_type = (response.headers.get("Content-Type") or b"").decode("latin-1")
+        file_ext = self._file_extension(response)
+        if file_ext is None:
+            self._reject_document(
+                response, record, "unsupported_document_type", logging.WARNING,
+                error=f"unsupported document type (Content-Type: {content_type or 'missing'})",
+                content_type=content_type,
+            )
+            return
+
+        problem = self._content_problem(response.body, file_ext)
+        if problem:
+            self._reject_document(
+                response, record, "corrupt_document", logging.ERROR,
+                error=f"corrupt {file_ext} document: {problem}",
+                content_type=content_type, file_ext=file_ext, size=len(response.body),
+            )
+            return
+
+        yield DecisionItem(
             **record,
             content=response.body,
-            content_type=(response.headers.get("Content-Type") or b"").decode("latin-1"),
-            file_ext=self._file_extension(response),
+            content_type=content_type,
+            file_ext=file_ext,
         )
-        yield item
 
-    def _file_extension(self, response) -> str:
+    def _reject_document(self, response, record: dict, event: str, level: int, error: str, **fields):
+        """Record a document we will not store: count it as failed and log why."""
+        self.run_stats.slice(record["partition_label"], record["body"]).failed.append(
+            {"url": response.url, "identifier": record["identifier"], "error": error}
+        )
+        log_event(logger, event, level=level,
+                  partition=record["partition_label"], body=record["body"],
+                  identifier=record["identifier"], url=response.url, error=error, **fields)
+
+    def _file_extension(self, response) -> str | None:
+        """Resolve the storage extension, or None if the document type is not one we handle."""
         ext = posixpath.splitext(urlparse(response.url).path)[1].lower()
         if ext in KNOWN_EXTENSIONS:
             return ".html" if ext == ".htm" else ext
         content_type = (response.headers.get("Content-Type") or b"").decode("latin-1").split(";")[0].strip()
-        return CONTENT_TYPE_EXT.get(content_type, ".html")
+        return CONTENT_TYPE_EXT.get(content_type.lower())
+
+    @staticmethod
+    def _content_problem(body: bytes, file_ext: str) -> str | None:
+        """Return a description of why `body` is not a valid `file_ext` document, or None if it is."""
+        if not body:
+            return "empty response body"
+        if file_ext == ".pdf":
+            if not body.startswith(PDF_MAGIC):
+                return "missing %PDF header"
+            if b"%%EOF" not in body[-2048:]:
+                return "missing %%EOF trailer (truncated download)"
+        elif file_ext == ".doc":
+            if not body.startswith(OLE2_MAGIC):
+                return "missing OLE2 header"
+        elif file_ext == ".docx":
+            try:
+                with zipfile.ZipFile(io.BytesIO(body)) as archive:
+                    if archive.testzip() is not None:
+                        return "zip archive fails CRC check"
+                    if "word/document.xml" not in archive.namelist():
+                        return "zip archive has no word/document.xml"
+            except zipfile.BadZipFile as exc:
+                return f"not a valid zip archive ({exc})"
+        elif file_ext == ".html":
+            if not HTML_TAG_RE.search(body[:8192]):
+                return "no HTML document markup found"
+        return None
 
     @staticmethod
     def _parse_date(raw: str | None) -> str | None:
