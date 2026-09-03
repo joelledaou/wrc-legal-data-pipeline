@@ -11,11 +11,10 @@ also natural units for retries and backfills: a failed month can be re-run
 alone, and re-running it is idempotent. `PARTITION_SIZE` switches to
 `weekly`/`daily` if a source ever publishes too densely for months.
 
-A useful discovery shapes the whole scraper: although the search page is an
-ASP.NET ViewState form, its pagination links expose a plain GET API
-(`?decisions=1&from=…&to=…&body=…&pageNumber=N`). We read the total count from
-page 1 and fan out all remaining pages concurrently — the fastest way to
-enumerate results without simulating form posts. Every result links to an
+Although the search page is an ASP.NET ViewState form, its pagination links
+expose a plain GET API (`?decisions=1&from=…&to=…&body=…&pageNumber=N`). We
+read the total count from page 1 and fan out all remaining pages concurrently,
+which enumerates results without simulating form posts. Every result links to an
 HTML case page; older Equality Tribunal (≤2002) and Employment Appeals
 Tribunal (≤2012) pages are stubs whose content column links the decision as a
 PDF, which the spider follows and stores instead of the page (falling back to
@@ -37,8 +36,8 @@ counted per record and logged as JSON with URL and error code, so
 Two layers:
 
 1. **Record identity.** A record's Mongo `_id` is its document URL path
-   (e.g. `/en/cases/2024/january/adj-00047352.html`) — stable, unique, and
-   independent of which search slice found it. All writes are upserts, so
+   (e.g. `/en/cases/2024/january/adj-00047352.html`), which is stable, unique,
+   and independent of which search slice found it. All writes are upserts, so
    re-running any range can never create duplicates.
 2. **Content identity.** Every stored file carries its SHA-256 (computed
    after stripping the server's per-request `<!-- Elapsed time -->` comment,
@@ -52,16 +51,16 @@ Two layers:
 ## Scaling to 50+ sources
 
 - **Source as plugin:** keep the per-source code down to a spider plus a
-  small descriptor (base URL, partition hints, parser). The contracts —
-  metadata schema, landing/processed layout, hashing, logging — stay shared,
+  small descriptor (base URL, partition hints, parser). The contracts
+  (metadata schema, landing/processed layout, hashing, logging) stay shared,
   so pipelines and transformations are written once.
 - **Orchestration:** move from one job to Dagster partitioned assets per
   source (source × month), giving independent schedules, backfills, retries,
   and SLA monitoring per source without new code.
 - **Decouple discovery from download:** at 1000× volume, publish discovered
-  records to a queue and let a horizontally scaled worker pool download —
-  per-source rate budgets replace per-process throttling; swap the per-record
-  existence check for batched lookups.
+  records to a queue and let a horizontally scaled worker pool download.
+  Per-source rate budgets replace per-process throttling, and batched lookups
+  replace the per-record existence check.
 - **Operations:** the JSON logs feed centralized observability (alert when
   `failed/found` exceeds a threshold); MinIO is replaced by S3/GCS and Mongo
   by a managed cluster with the same client code; secrets move to a vault.

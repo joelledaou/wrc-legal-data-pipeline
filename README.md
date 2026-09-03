@@ -3,7 +3,7 @@
 A Scrapy-based pipeline that scrapes decisions and determinations from
 [Workplace Relations](https://www.workplacerelations.ie/en/search/), stores the
 documents in object storage (MinIO), the metadata in a NoSQL database
-(MongoDB), and transforms the landed data into a clean processed zone —
+(MongoDB), and transforms the landed data into a clean processed zone,
 orchestrated with Dagster. Everything runs in Docker.
 
 ## How it works
@@ -45,7 +45,7 @@ orchestrated with Dagster. Everything runs in Docker.
 
 ## Prerequisites
 
-- Docker + Docker Compose (that's all — Python is not needed on the host)
+- Docker + Docker Compose. Python is not needed on the host.
 
 ## Run it
 
@@ -62,11 +62,10 @@ docker compose up -d --build
 ```
 
 This starts MongoDB, MinIO, and the Dagster UI at <http://localhost:3000>.
-(All published ports are configurable in `.env` — `MONGO_PORT`,
-`MINIO_API_PORT`, `MINIO_CONSOLE_PORT`, `DAGSTER_PORT` — the URLs below assume
-the defaults.)
+Published ports are configurable in `.env` (`MONGO_PORT`, `MINIO_API_PORT`,
+`MINIO_CONSOLE_PORT`, `DAGSTER_PORT`); the URLs below assume the defaults.
 
-**3. Run the pipeline** — either through Dagster (recommended):
+**3. Run the pipeline**, either through Dagster (recommended):
 
 1. Open <http://localhost:3000>
 2. Jobs → `wrc_decisions_job` → **Launchpad**
@@ -80,10 +79,10 @@ the defaults.)
    ```
    Optional keys: `bodies` (comma-separated subset), `partition_size`
    (`monthly`/`weekly`/`daily`, overriding `PARTITION_SIZE`), `force_refetch`.
-4. **Launch Run** — ingestion runs first, transformation starts when it
+4. **Launch Run**. Ingestion runs first, transformation starts when it
    succeeds. Logs stream live in the UI.
 
-…or from the command line:
+or from the command line:
 
 ```bash
 docker compose run --rm pipeline python -m wrc_pipeline.ingest --start-date 2024-01-01 --end-date 2024-02-01
@@ -91,7 +90,7 @@ docker compose run --rm pipeline python -m wrc_pipeline.transform --start-date 2
 ```
 
 > January 2024 contains ~270 decisions across all bodies. Expect the first
-> ingestion to take a few minutes — the scraper is deliberately polite
+> ingestion to take a few minutes: the scraper is deliberately polite
 > (AutoThrottle, retries, identified User-Agent, robots.txt respected).
 
 > All 2024 decisions are HTML pages. To exercise the PDF path, use a range
@@ -119,7 +118,7 @@ Documents (MinIO): open the console at <http://localhost:9001>
 (login `minioadmin` / `minioadmin`) and browse the `wrc-landing` and
 `wrc-processed` buckets.
 
-Idempotency: run the same ingestion command again — the `run_summary` log line
+Idempotency: run the same ingestion command again. The `run_summary` log line
 shows every already-stored record under `skipped_existing`, with no duplicate
 records and no re-downloads.
 
@@ -148,9 +147,5 @@ wrc_pipeline/
     └── spiders/decisions.py   # search + pagination + document spider
 ```
 
-Each module reads top-down (the "stepdown rule"): entry points and public
-functions come first, and every function is placed above the helpers it calls,
-so a file can be walked from the first definition to the last. The one exception
-is `orchestration.py`, where Dagster requires the ops to be defined before the job.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions.

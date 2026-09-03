@@ -1,16 +1,12 @@
-"""Item pipeline: hash the document, store it in MinIO, upsert metadata in MongoDB.
+"""Hash each document, upload it to MinIO, upsert its metadata in MongoDB.
 
-Landing-zone layout: <body>/<partition_date>/<page-slug>.<ext>, e.g.
+Objects are stored as <body>/<partition_date>/<page-slug>.<ext>, e.g.
     workplace-relations-commission/2024-01-01/adj-00047352.html
-    employment-appeals-tribunal/2009-12-01/pw42_2009.pdf   (PDF attachment)
+    employment-appeals-tribunal/2009-12-01/pw42_2009.pdf
 
-The slug is the case page's own filename, so a record's object is named the
-same way whether the page itself or its PDF/DOC attachment was stored.
-
-Idempotency: metadata is upserted on the record's stable _id (the document URL
-path), so re-runs never create duplicates. The SHA-256 file hash detects
-content changes: an unchanged file is not re-uploaded, a changed one
-overwrites the object and updates the hash.
+Metadata is upserted on the record's _id (the document URL path), so re-runs
+never create duplicates. The SHA-256 hash detects content changes: unchanged
+files are not re-uploaded, changed ones overwrite the object.
 """
 
 from __future__ import annotations
@@ -28,19 +24,12 @@ from scrapy.exceptions import DropItem
 
 from wrc_pipeline.config import Settings
 from wrc_pipeline.logging_utils import log_event
-from wrc_pipeline.storage import (
-    ensure_bucket,
-    ensure_landing_indexes,
-    get_minio_client,
-    get_mongo_collection,
-)
+from wrc_pipeline.storage import ensure_bucket, ensure_landing_indexes, get_minio_client, get_mongo_collection
 
 logger = logging.getLogger("wrc.ingest")
 
-# The server appends a render-timing comment (<!-- Elapsed time: 0.12 -->)
-# that differs on every request. It is diagnostics, not document content, and
-# would make every page hash as "changed" on every run — so it is stripped
-# before hashing and storing.
+# The server appends a render-timing comment that differs on every request.
+# Stripped before hashing, or every page would look changed on every run.
 VOLATILE_HTML_RE = re.compile(rb"<!--\s*Elapsed time:[^>]*-->")
 
 
@@ -61,68 +50,65 @@ class MongoMinioStorePipeline:
 
     def process_item(self, item):
         record = ItemAdapter(item).asdict()
-        content: bytes = record.pop("content")
-        content_type: str = record.pop("content_type") or "application/octet-stream"
-        file_ext: str = record.pop("file_ext")
-        stats = self.crawler.spider.run_stats.slice(record["partition_label"], record["body"])
+        content = record.pop("content")
+        content_type = record.pop("content_type") or "application/octet-stream"
+        file_ext = record.pop("file_ext")
+        if file_ext == ".html":
+            content = VOLATILE_HTML_RE.sub(b"", content)
 
         try:
-            if file_ext == ".html":
-                content = VOLATILE_HTML_RE.sub(b"", content)
-            file_hash = hashlib.sha256(content).hexdigest()
-            file_path = self._object_key(record, file_ext)
-            existing = self.landing.find_one({"_id": record["record_id"]}, {"file_hash": 1})
-
-            now = datetime.now(timezone.utc).isoformat()
-            if existing and existing.get("file_hash") == file_hash:
-                # Same content as last run — refresh metadata only, keep the object.
-                stats.unchanged += 1
-                changed = False
-            else:
-                self.minio.put_object(self.cfg.landing_bucket, file_path, io.BytesIO(content),
-                                      length=len(content), content_type=content_type)
-                stats.downloaded += 1
-                changed = True
-
-            self.landing.update_one(
-                {"_id": record["record_id"]},
-                {
-                    "$set": {
-                        **{k: v for k, v in record.items() if k != "record_id"},
-                        "file_bucket": self.cfg.landing_bucket,
-                        "file_path": file_path,
-                        "file_hash": file_hash,
-                        "file_size": len(content),
-                        "content_type": content_type,
-                        "scraped_at": now,
-                        "last_seen_at": now,
-                    },
-                    "$setOnInsert": {"first_scraped_at": now},
-                },
-                upsert=True,
-            )
-            log_event(
-                logger,
-                "record_stored",
-                level=logging.DEBUG,
-                identifier=record["identifier"],
-                partition=record["partition_label"],
-                body=record["body"],
-                file_path=file_path,
-                file_hash=file_hash,
-                previous_hash=existing.get("file_hash") if existing else None,
-                changed=changed,
-            )
+            self._store(record, content, content_type, file_ext)
         except Exception as exc:
-            stats.failed.append({"url": record.get("doc_url"), "identifier": record.get("identifier"),
-                                 "error": f"store failed: {exc}"})
+            error = f"store failed: {exc}"
+            self.crawler.spider.run_stats.add_failure(
+                record["partition_label"], record["body"], record["doc_url"], error, record["identifier"]
+            )
             log_event(logger, "store_failed", level=logging.ERROR,
-                      identifier=record.get("identifier"), url=record.get("doc_url"), error=str(exc))
-            raise DropItem(f"storage failed for {record.get('identifier')}: {exc}") from exc
-
+                      identifier=record["identifier"], url=record["doc_url"], error=str(exc))
+            raise DropItem(f"storage failed for {record['identifier']}: {exc}") from exc
         return item
 
-    @staticmethod
-    def _object_key(record: dict, file_ext: str) -> str:
-        slug = posixpath.splitext(posixpath.basename(urlparse(record["doc_url"]).path))[0] or "document"
-        return f"{record['body']}/{record['partition_date']}/{slug}{file_ext}"
+    def _store(self, record: dict, content: bytes, content_type: str, file_ext: str) -> None:
+        stats = self.crawler.spider.run_stats.slice(record["partition_label"], record["body"])
+        record_id = record.pop("record_id")
+        file_hash = hashlib.sha256(content).hexdigest()
+        file_path = object_key(record, file_ext)
+        existing = self.landing.find_one({"_id": record_id}, {"file_hash": 1})
+        previous_hash = existing.get("file_hash") if existing else None
+
+        changed = previous_hash != file_hash
+        if changed:
+            self.minio.put_object(self.cfg.landing_bucket, file_path, io.BytesIO(content),
+                                  length=len(content), content_type=content_type)
+            stats.downloaded += 1
+        else:
+            stats.unchanged += 1
+
+        now = datetime.now(timezone.utc).isoformat()
+        self.landing.update_one(
+            {"_id": record_id},
+            {
+                "$set": {
+                    **record,
+                    "file_bucket": self.cfg.landing_bucket,
+                    "file_path": file_path,
+                    "file_hash": file_hash,
+                    "file_size": len(content),
+                    "content_type": content_type,
+                    "scraped_at": now,
+                    "last_seen_at": now,
+                },
+                "$setOnInsert": {"first_scraped_at": now},
+            },
+            upsert=True,
+        )
+        log_event(logger, "record_stored", level=logging.DEBUG,
+                  identifier=record["identifier"], partition=record["partition_label"], body=record["body"],
+                  file_path=file_path, file_hash=file_hash, previous_hash=previous_hash, changed=changed)
+
+
+def object_key(record: dict, file_ext: str) -> str:
+    # Named after the case page so a record's object has the same name whether
+    # the page itself or its attachment was stored.
+    slug = posixpath.splitext(posixpath.basename(urlparse(record["doc_url"]).path))[0] or "document"
+    return f"{record['body']}/{record['partition_date']}/{slug}{file_ext}"

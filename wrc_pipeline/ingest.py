@@ -1,6 +1,5 @@
-"""Ingestion entrypoint: scrape WRC decisions for a date range into the landing zone.
+"""Scrape WRC decisions for a date range into the landing zone.
 
-Usage:
     python -m wrc_pipeline.ingest --start-date 2024-01-01 --end-date 2024-02-01
 """
 
@@ -15,13 +14,13 @@ from scrapy.settings import Settings as ScrapySettings
 
 from wrc_pipeline.config import Settings
 from wrc_pipeline.logging_utils import setup_json_logging
+from wrc_pipeline.partitions import PARTITION_SIZES
 from wrc_pipeline.scraper.spiders.decisions import DecisionsSpider
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    cfg = Settings()
-    setup_json_logging(cfg.log_level)
+    setup_json_logging(Settings().log_level)
 
     scrapy_settings = ScrapySettings()
     scrapy_settings.setmodule("wrc_pipeline.scraper.settings")
@@ -37,23 +36,17 @@ def main(argv: list[str] | None = None) -> int:
         partition_size=args.partition_size,
     )
     process.start()
-
-    finish_reason = crawler.stats.get_value("finish_reason")
-    return 0 if finish_reason == "finished" else 2
+    return 0 if crawler.stats.get_value("finish_reason") == "finished" else 2
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Scrape WRC decisions and determinations.")
-    parser.add_argument("--start-date", required=True, type=date.fromisoformat,
-                        help="Range start, inclusive (YYYY-MM-DD)")
-    parser.add_argument("--end-date", required=True, type=date.fromisoformat,
-                        help="Range end, exclusive (YYYY-MM-DD)")
-    parser.add_argument("--bodies", default=None,
-                        help="Comma-separated subset of bodies (default: all four)")
-    parser.add_argument("--partition-size", default=None, choices=["monthly", "weekly", "daily"],
-                        help="Override PARTITION_SIZE from the environment")
+    parser.add_argument("--start-date", required=True, type=date.fromisoformat, help="inclusive, YYYY-MM-DD")
+    parser.add_argument("--end-date", required=True, type=date.fromisoformat, help="exclusive, YYYY-MM-DD")
+    parser.add_argument("--bodies", help="comma-separated subset of bodies (default: all four)")
+    parser.add_argument("--partition-size", choices=PARTITION_SIZES, help="overrides PARTITION_SIZE")
     parser.add_argument("--force-refetch", action="store_true",
-                        help="Re-fetch documents we already hold (detect changes via file hash)")
+                        help="re-fetch documents we already hold and detect changes via file hash")
     return parser.parse_args(argv)
 
 

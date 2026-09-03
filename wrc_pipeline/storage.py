@@ -1,9 +1,9 @@
-"""Thin clients for the two stores: MongoDB (metadata) and MinIO (documents)."""
+"""Clients for the two stores: MongoDB for metadata, MinIO for documents."""
 
 from __future__ import annotations
 
 from minio import Minio
-from pymongo import ASCENDING, MongoClient
+from pymongo import MongoClient
 from pymongo.collection import Collection
 
 from wrc_pipeline.config import Settings
@@ -15,12 +15,8 @@ def get_mongo_collection(settings: Settings, name: str) -> Collection:
 
 
 def ensure_landing_indexes(collection: Collection) -> None:
-    """Records are keyed by document URL path (natural dedup key); these
-    indexes only serve the common query patterns."""
-    collection.create_index([("identifier", ASCENDING)])
-    collection.create_index([("partition_date", ASCENDING)])
-    collection.create_index([("published_date", ASCENDING)])
-    collection.create_index([("body", ASCENDING)])
+    for field in ("identifier", "partition_date", "published_date", "body"):
+        collection.create_index(field)
 
 
 def get_minio_client(settings: Settings) -> Minio:

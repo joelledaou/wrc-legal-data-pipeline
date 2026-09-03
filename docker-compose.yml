@@ -31,7 +31,6 @@ services:
       timeout: 5s
       retries: 12
 
-  # Dagster UI + daemon: orchestrates ingestion -> transformation.
   dagster:
     build: .
     command: dagster dev -m wrc_pipeline.orchestration -h 0.0.0.0 -p 3000
@@ -48,8 +47,6 @@ services:
       minio:
         condition: service_healthy
 
-  # One-off CLI runs, e.g.:
-  #   docker compose run --rm pipeline python -m wrc_pipeline.ingest --start-date 2024-01-01 --end-date 2024-02-01
   pipeline:
     build: .
     profiles: ["cli"]
