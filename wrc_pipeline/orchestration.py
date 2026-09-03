@@ -37,7 +37,7 @@ def ingest_decisions(context: OpExecutionContext, config: DateRangeConfig) -> di
     if config.partition_size:
         arguments += ["--partition-size", config.partition_size]
     if config.force_refetch:
-        arguments += ["--force"]
+        arguments += ["--force-refetch"]
     _run_module(context, "wrc_pipeline.ingest", arguments)
     return {"start_date": config.start_date, "end_date": config.end_date}
 

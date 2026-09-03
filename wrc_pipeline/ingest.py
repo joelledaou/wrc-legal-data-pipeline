@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
         start_date=args.start_date.isoformat(),
         end_date=args.end_date.isoformat(),
         bodies=args.bodies,
-        force="true" if args.force else None,
+        force_refetch="true" if args.force_refetch else None,
         partition_size=args.partition_size,
     )
     process.start()
@@ -52,7 +52,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Comma-separated subset of bodies (default: all four)")
     parser.add_argument("--partition-size", default=None, choices=["monthly", "weekly", "daily"],
                         help="Override PARTITION_SIZE from the environment")
-    parser.add_argument("--force", action="store_true",
+    parser.add_argument("--force-refetch", action="store_true",
                         help="Re-fetch documents we already hold (detect changes via file hash)")
     return parser.parse_args(argv)
 

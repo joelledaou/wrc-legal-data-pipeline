@@ -44,7 +44,7 @@ Two layers:
    after stripping the server's per-request `<!-- Elapsed time -->` comment,
    which would otherwise make every page hash as "changed"). On a re-run,
    known records (hash in Mongo + object present in MinIO) are skipped without
-   re-downloading. With `--force`, documents are re-fetched and the new hash
+   re-downloading. With `--force-refetch`, documents are re-fetched and the new hash
    is compared: identical content is not re-uploaded; changed content
    overwrites the object and updates the hash. The transformation uses the
    same trick (`source_file_hash`) to skip records whose input hasn't changed.

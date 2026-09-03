@@ -24,7 +24,7 @@ record and its metadata are not lost, and the record is flagged with
 
 Idempotency: records are keyed by document URL path. A record we already hold
 (with a stored file hash and the object present in MinIO) is skipped without
-re-downloading; pass force=true / SCRAPER_FORCE_REFETCH=true to re-fetch and
+re-downloading; pass force_refetch=true / SCRAPER_FORCE_REFETCH=true to re-fetch and
 use the file hash to detect content changes.
 """
 
@@ -83,7 +83,7 @@ class DecisionsSpider(scrapy.Spider):
         start_date: str,
         end_date: str,
         bodies: str | None = None,
-        force: str | None = None,
+        force_refetch: str | None = None,
         partition_size: str | None = None,
         **kwargs,
     ):
@@ -105,7 +105,9 @@ class DecisionsSpider(scrapy.Spider):
         else:
             self.bodies = self.cfg.selected_bodies()
         self.force_refetch = (
-            force.strip().lower() in ("1", "true", "yes") if force is not None else self.cfg.force_refetch
+            force_refetch.strip().lower() in ("1", "true", "yes")
+            if force_refetch is not None
+            else self.cfg.force_refetch
         )
         self.run_stats = RunStats()
         # Used for the skip-check and last_seen touch; the item pipeline owns document writes.

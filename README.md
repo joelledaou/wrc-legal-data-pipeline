@@ -38,7 +38,7 @@ orchestrated with Dagster. Everything runs in Docker.
   `decisions_processed`. The landing zone is never modified.
 - **Idempotency**: records are keyed by their document URL; re-running a range
   creates no duplicates and skips files already downloaded. File hashes detect
-  content changes (`--force` re-fetches and re-compares).
+  content changes (`--force-refetch` re-fetches and re-compares).
 - **Logs** are structured JSON on stdout: partition/body being processed,
   found vs. scraped counts, every failed download with URL and error, and a
   run summary.
