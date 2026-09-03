@@ -108,6 +108,8 @@ class MongoMinioStorePipeline:
                 partition=record["partition_label"],
                 body=record["body"],
                 file_path=file_path,
+                file_hash=file_hash,
+                previous_hash=existing.get("file_hash") if existing else None,
                 changed=changed,
             )
         except Exception as exc:
