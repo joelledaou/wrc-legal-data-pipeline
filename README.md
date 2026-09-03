@@ -122,6 +122,15 @@ Idempotency: run the same ingestion command again. The `run_summary` log line
 shows every already-stored record under `skipped_existing`, with no duplicate
 records and no re-downloads.
 
+## Run the tests
+
+Unit tests cover partitioning, hash stability, document validation, HTML
+extraction and file naming. They need no running services:
+
+```bash
+docker compose run --rm pipeline pytest
+```
+
 ## Configuration
 
 Everything is configurable via `.env` (see [.env.example](.env.example)):
@@ -145,6 +154,7 @@ wrc_pipeline/
     ├── items.py               # DecisionItem
     ├── pipelines.py           # hash -> MinIO upload -> Mongo upsert
     └── spiders/decisions.py   # search + pagination + document spider
+tests/                         # pytest unit tests (no services needed)
 ```
 
 

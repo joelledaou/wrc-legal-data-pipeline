@@ -12,3 +12,10 @@ dependencies = [
     "dagster>=1.8",
     "dagster-webserver>=1.8",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -42,9 +42,7 @@ class Settings:
     partition_size: str = _env("PARTITION_SIZE", "monthly")
 
     # scraping behaviour
-    user_agent: str = _env(
-        "SCRAPER_USER_AGENT", "wrc-legal-data-pipeline (research/assessment; contact: joelle.daou03@gmail.com)"
-    )
+    user_agent: str = _env("SCRAPER_USER_AGENT", "wrc-legal-data-pipeline (assessment project)")
     concurrent_requests: int = _env("SCRAPER_CONCURRENT_REQUESTS", 8)
     concurrency_per_domain: int = _env("SCRAPER_CONCURRENCY_PER_DOMAIN", 4)
     download_delay: float = _env("SCRAPER_DOWNLOAD_DELAY", 0.25)

@@ -148,7 +148,7 @@ def processed_key(record: dict, extension: str) -> str:
     folder = posixpath.dirname(record["file_path"])
     # Identifiers like "UD962/2014" or "IR - SC - 00001595" are not valid object names.
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", record.get("identifier", ""))
-    name = re.sub(r"-{2,}", "-", name).strip("-.") or record["_id"].split("/")[-1]
+    name = re.sub(r"-{2,}", "-", name).strip("-.") or posixpath.splitext(posixpath.basename(record["_id"]))[0]
     return posixpath.join(folder, name + extension)
 
 
