@@ -24,6 +24,7 @@ class DateRangeConfig(Config):
     start_date: str = "2024-01-01"
     end_date: str = "2024-02-01"
     bodies: str = ""      # comma-separated subset; empty = all four bodies
+    partition_size: str = ""  # monthly | weekly | daily; empty = PARTITION_SIZE from the environment
     force_refetch: bool = False
 
 
@@ -33,6 +34,8 @@ def ingest_decisions(context: OpExecutionContext, config: DateRangeConfig) -> di
     arguments = ["--start-date", config.start_date, "--end-date", config.end_date]
     if config.bodies:
         arguments += ["--bodies", config.bodies]
+    if config.partition_size:
+        arguments += ["--partition-size", config.partition_size]
     if config.force_refetch:
         arguments += ["--force"]
     _run_module(context, "wrc_pipeline.ingest", arguments)

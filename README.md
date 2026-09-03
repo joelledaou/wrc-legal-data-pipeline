@@ -78,6 +78,8 @@ the defaults.)
          start_date: "2024-01-01"
          end_date: "2024-02-01"
    ```
+   Optional keys: `bodies` (comma-separated subset), `partition_size`
+   (`monthly`/`weekly`/`daily`, overriding `PARTITION_SIZE`), `force_refetch`.
 4. **Launch Run** — ingestion runs first, transformation starts when it
    succeeds. Logs stream live in the UI.
 
