@@ -20,6 +20,13 @@ WRC_BODIES: dict[str, int] = {
     "workplace-relations-commission": 15376,
 }
 
+# Where the decision itself lives on a case page: the right-hand column of the
+# main container. Everything outside it (header, nav, footer, cookie bar) is
+# site chrome. Shared by the spider (to find PDF/DOC attachments) and the
+# transformation (to extract the relevant HTML content), so both agree on
+# what "the document" is. Tried in order; the first match wins.
+DECISION_CONTENT_SELECTORS: tuple[str, ...] = ("div.container.mb-4 div.col-sm-9", "div.container.mb-4")
+
 
 @dataclass(frozen=True)
 class Settings:

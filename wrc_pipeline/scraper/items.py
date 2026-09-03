@@ -11,7 +11,10 @@ class DecisionItem(scrapy.Item):
     description = scrapy.Field()      # e.g. "Declan Holden V Ger Brennan Construction"
     published_date = scrapy.Field()   # ISO date the decision was published
     body = scrapy.Field()             # which tribunal: labour-court, workplace-relations-commission, ...
-    doc_url = scrapy.Field()          # absolute link to the document
+    doc_url = scrapy.Field()          # absolute link to the document (the "View Page" link)
+    file_url = scrapy.Field()         # URL the stored bytes came from: doc_url, or its PDF/DOC attachment
+    attachment_url = scrapy.Field()   # PDF/DOC linked from the page's decision content, when there is one
+    attachment_error = scrapy.Field() # set when the attachment could not be fetched and the page was stored instead
     partition_date = scrapy.Field()   # ISO start date of the partition this record was scraped under
     partition_label = scrapy.Field()  # e.g. "2024-01"
 

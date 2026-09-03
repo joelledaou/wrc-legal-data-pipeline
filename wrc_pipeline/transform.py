@@ -32,7 +32,7 @@ from datetime import date, datetime, timezone
 
 from bs4 import BeautifulSoup
 
-from wrc_pipeline.config import get_settings
+from wrc_pipeline.config import DECISION_CONTENT_SELECTORS, get_settings
 from wrc_pipeline.logging_utils import log_event, setup_json_logging
 from wrc_pipeline.storage import (
     ensure_bucket,
@@ -45,9 +45,8 @@ from wrc_pipeline.storage import (
 
 logger = logging.getLogger("wrc.transform")
 
-# The decision text on a WRC case page lives in the right-hand column of the
-# main container; everything else (header, nav, footer, cookie bar) is chrome.
-CONTENT_SELECTORS = ["div.container.mb-4 div.col-sm-9", "div.container.mb-4"]
+# Everything outside the decision content column (header, nav, footer, cookie
+# bar, scripts) is chrome and is dropped.
 CHROME_SELECTORS = ["header", "footer", "nav", "script", "noscript", "style", "iframe",
                     "#globalCookieBar", ".social-banner", "#skippy"]
 
@@ -141,7 +140,7 @@ def extract_relevant_html(raw_html: bytes, title: str) -> tuple[bytes, dict]:
     quality: dict = {"extraction": "content-selector"}
 
     content = None
-    for selector in CONTENT_SELECTORS:
+    for selector in DECISION_CONTENT_SELECTORS:
         content = soup.select_one(selector)
         if content is not None:
             break

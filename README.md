@@ -21,9 +21,15 @@ orchestrated with Dagster. Everything runs in Docker.
 - **Ingestion** scrapes each of the four bodies (Labour Court, WRC, Employment
   Appeals Tribunal, Equality Tribunal) using the site's start/finish date
   filters, one search per monthly partition. Every record gets a
-  `partition_date`, its document is downloaded (HTML page, PDF, or DOC),
-  hashed (SHA-256), stored in the `wrc-landing` bucket, and its metadata is
-  upserted into the `decisions_landing` collection.
+  `partition_date`, its document is downloaded, hashed (SHA-256), stored in
+  the `wrc-landing` bucket, and its metadata is upserted into the
+  `decisions_landing` collection. Every search result links to an HTML case
+  page; when that page's decision content links a PDF/DOC attachment (older
+  Equality Tribunal and Employment Appeals Tribunal records), the attachment
+  is downloaded and stored as the record's document instead of the page. If
+  the attachment cannot be fetched (robots.txt disallows the Equality
+  Tribunal import folder), the page is stored, the record is flagged with
+  `attachment_error`, and the run summary counts it as `attachment_unavailable`.
 - **Transformation** reads a date range back from Mongo, strips WRC page
   chrome from HTML files with BeautifulSoup (PDF/DOC pass through unchanged),
   renames every file to `<identifier>.<ext>`, writes it to the `wrc-processed`
@@ -85,6 +91,14 @@ docker compose run --rm pipeline python -m wrc_pipeline.transform --start-date 2
 > January 2024 contains ~270 decisions across all bodies. Expect the first
 > ingestion to take a few minutes — the scraper is deliberately polite
 > (AutoThrottle, retries, identified User-Agent, robots.txt respected).
+
+> All 2024 decisions are HTML pages. To exercise the PDF path, use a range
+> where the case pages carry attachments, e.g. the Equality Tribunal in 2000
+> (42 records) or the Employment Appeals Tribunal in December 2009:
+>
+> ```bash
+> docker compose run --rm pipeline python -m wrc_pipeline.ingest --start-date 2000-01-01 --end-date 2001-01-01 --bodies equality-tribunal
+> ```
 
 ## Verify the results
 

@@ -9,8 +9,10 @@ SPIDER_MODULES = ["wrc_pipeline.scraper.spiders"]
 NEWSPIDER_MODULE = "wrc_pipeline.scraper.spiders"
 
 # Polite, identified scraping. The decisions search and lowercase /en/cases/
-# pages are allowed by the site's robots.txt (only legacy /en/Cases/ import
-# paths are disallowed).
+# pages are allowed by the site's robots.txt, as are the lowercase
+# /en/eat_import/ PDF attachments. The /en/Equality_Tribunal_Import/ folder is
+# disallowed, so those attachments are skipped and the stub page is stored
+# instead (see DecisionsSpider.on_attachment_error).
 ROBOTSTXT_OBEY = True
 USER_AGENT = _cfg.user_agent
 

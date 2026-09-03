@@ -15,7 +15,11 @@ A useful discovery shapes the whole scraper: although the search page is an
 ASP.NET ViewState form, its pagination links expose a plain GET API
 (`?decisions=1&from=…&to=…&body=…&pageNumber=N`). We read the total count from
 page 1 and fan out all remaining pages concurrently — the fastest way to
-enumerate results without simulating form posts.
+enumerate results without simulating form posts. Every result links to an
+HTML case page; older Equality Tribunal (≤2002) and Employment Appeals
+Tribunal (≤2012) pages are stubs whose content column links the decision as a
+PDF, which the spider follows and stores instead of the page (falling back to
+the stub, flagged, where robots.txt disallows the attachment).
 
 ## Retries and rate limiting
 

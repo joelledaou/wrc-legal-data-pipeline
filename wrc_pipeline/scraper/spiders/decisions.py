@@ -12,6 +12,16 @@ page 1, read the total result count ("Shows 1 to 10 of N results"), and fan out
 the remaining pages in parallel. Each result row is then resolved to its
 document, which the item pipeline hashes and stores.
 
+Every result row links to an HTML case page. For most records that page *is*
+the decision and is stored as .html. Older records (Equality Tribunal up to
+2002, Employment Appeals Tribunal up to 2012) are stub pages whose decision
+content column links the real decision as a PDF (or DOC) attachment; in that
+case the attachment is fetched and stored as the record's document instead.
+If the attachment cannot be fetched (the site's robots.txt disallows the
+Equality Tribunal import folder, for instance), the stub page is stored so the
+record and its metadata are not lost, and the record is flagged with
+`attachment_error`.
+
 Idempotency: records are keyed by document URL path. A record we already hold
 (with a stored file hash and the object present in MinIO) is skipped without
 re-downloading; pass force=true / SCRAPER_FORCE_REFETCH=true to re-fetch and
@@ -27,12 +37,12 @@ import posixpath
 import re
 import zipfile
 from datetime import date, datetime, timezone
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import scrapy
 from scrapy.spidermiddlewares.httperror import HttpError
 
-from wrc_pipeline.config import WRC_BODIES, get_settings
+from wrc_pipeline.config import DECISION_CONTENT_SELECTORS, WRC_BODIES, get_settings
 from wrc_pipeline.logging_utils import log_event
 from wrc_pipeline.partitions import Partition, build_partitions
 from wrc_pipeline.scraper.items import DecisionItem
@@ -52,6 +62,12 @@ CONTENT_TYPE_EXT = {
     "text/html": ".html",
     "application/xhtml+xml": ".html",
 }
+# A link with one of these extensions inside the decision content column is the
+# record's real document (requirement 6a); the page around it is only a stub.
+ATTACHMENT_EXTENSIONS = {".pdf", ".doc", ".docx"}
+# A stored HTML page with less text than this and no attachment is almost
+# certainly a layout we do not understand; it is kept but flagged.
+MIN_CONTENT_CHARS = 100
 # Magic bytes per format, used to reject truncated/corrupt downloads and
 # mislabelled responses (e.g. an HTML error page served for a ".pdf" URL).
 PDF_MAGIC = b"%PDF-"
@@ -189,7 +205,12 @@ class DecisionsSpider(scrapy.Spider):
             cb_kwargs={"record": record},
         )
 
-    def parse_document(self, response, record: dict):
+    def parse_document(self, response, record: dict, page_response=None):
+        """Store the fetched document, or follow its PDF/DOC attachment first.
+
+        `page_response` is set when `response` is an attachment fetched from
+        that page; it also stops an HTML error page served for an attachment
+        URL from being searched for attachments again."""
         content_type = (response.headers.get("Content-Type") or b"").decode("latin-1")
         file_ext = self._file_extension(response)
         if file_ext is None:
@@ -200,6 +221,35 @@ class DecisionsSpider(scrapy.Spider):
             )
             return
 
+        if file_ext == ".html" and page_response is None:
+            attachment_url = self._attachment_url(response)
+            if attachment_url:
+                # The page is a stub; the decision is the linked PDF/DOC. The page
+                # travels along so it can be stored instead if the attachment fails.
+                log_event(logger, "attachment_found", level=logging.DEBUG,
+                          partition=record["partition_label"], body=record["body"],
+                          identifier=record["identifier"], page_url=response.url, url=attachment_url)
+                yield scrapy.Request(
+                    attachment_url,
+                    callback=self.parse_document,
+                    errback=self.on_attachment_error,
+                    cb_kwargs={"record": {**record, "attachment_url": attachment_url},
+                               "page_response": response},
+                )
+                return
+            content_chars = self._content_chars(response)
+            if content_chars < MIN_CONTENT_CHARS:
+                # Stored anyway (it is what the site serves), but flagged so a
+                # layout change or a new attachment style does not go unnoticed.
+                log_event(logger, "page_without_decision_content", level=logging.WARNING,
+                          partition=record["partition_label"], body=record["body"],
+                          identifier=record["identifier"], url=response.url,
+                          content_chars=content_chars)
+
+        yield from self._document_item(response, record, file_ext, content_type)
+
+    def _document_item(self, response, record: dict, file_ext: str, content_type: str):
+        """Validate the response body for its format and yield it as the record's document."""
         problem = self._content_problem(response.body, file_ext)
         if problem:
             self._reject_document(
@@ -211,6 +261,7 @@ class DecisionsSpider(scrapy.Spider):
 
         yield DecisionItem(
             **record,
+            file_url=response.url,
             content=response.body,
             content_type=content_type,
             file_ext=file_ext,
@@ -237,6 +288,21 @@ class DecisionsSpider(scrapy.Spider):
         log_event(logger, "download_failed", level=logging.WARNING,
                   partition=record["partition_label"], body=record["body"],
                   identifier=record["identifier"], url=failure.request.url, error=error)
+
+    def on_attachment_error(self, failure):
+        """The PDF/DOC attachment could not be fetched: keep the record by storing
+        the stub page it was linked from, flagged with the reason, and count it
+        separately in the summary so the gap is visible."""
+        record = failure.request.cb_kwargs["record"]
+        page = failure.request.cb_kwargs["page_response"]
+        error = self._describe_failure(failure)
+        self.run_stats.slice(record["partition_label"], record["body"]).attachment_unavailable += 1
+        log_event(logger, "attachment_unavailable", level=logging.WARNING,
+                  partition=record["partition_label"], body=record["body"],
+                  identifier=record["identifier"], url=failure.request.url, page_url=page.url,
+                  error=error)
+        page_content_type = (page.headers.get("Content-Type") or b"").decode("latin-1")
+        yield from self._document_item(page, {**record, "attachment_error": error}, ".html", page_content_type)
 
     # ----------------------------------------------------------------- summary
 
@@ -273,6 +339,38 @@ class DecisionsSpider(scrapy.Spider):
             return datetime.strptime((raw or "").strip(), "%d/%m/%Y").date().isoformat()
         except ValueError:
             return None
+
+    @staticmethod
+    def _decision_content(response):
+        """The selector for the decision content column of a case page, or None."""
+        for selector in DECISION_CONTENT_SELECTORS:
+            column = response.css(selector)
+            if column:
+                return column
+        return None
+
+    def _attachment_url(self, response) -> str | None:
+        """Absolute URL of the PDF/DOC linked from the decision content column, if any.
+
+        Only that column is searched: every page also links the site's cookie
+        policy and search guide PDFs from its header/footer. Query strings are
+        dropped because the site links the same file twice, once as a
+        thumbnail (`?type=pdfPreview&width=200`) and once as the download."""
+        column = self._decision_content(response)
+        if column is None:
+            return None
+        for href in column.css("a::attr(href)").getall():
+            parts = urlparse(response.urljoin(href))
+            if posixpath.splitext(parts.path)[1].lower() in ATTACHMENT_EXTENSIONS:
+                return urlunparse(parts._replace(query="", fragment=""))
+        return None
+
+    def _content_chars(self, response) -> int:
+        """Length of the visible text in the decision content column (0 if not found)."""
+        column = self._decision_content(response)
+        if column is None:
+            return 0
+        return len(" ".join(" ".join(column.xpath(".//text()").getall()).split()))
 
     def _file_extension(self, response) -> str | None:
         """Resolve the storage extension, or None if the document type is not one we handle."""

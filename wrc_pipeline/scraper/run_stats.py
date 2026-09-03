@@ -13,6 +13,7 @@ class SliceStats:
     downloaded: int = 0   # documents fetched and stored (new or changed)
     unchanged: int = 0    # documents fetched but identical to what we already hold
     skipped: int = 0      # known records not re-fetched (idempotent fast path)
+    attachment_unavailable: int = 0  # stored the stub page because its PDF/DOC attachment failed
     failed: list[dict] = field(default_factory=list)  # {url, error, ...} per failure
 
     @property
@@ -35,6 +36,7 @@ class RunStats:
                 "found": s.found,
                 "scraped": s.scraped,
                 "skipped_existing": s.skipped,
+                "attachment_unavailable": s.attachment_unavailable,
                 "failed": len(s.failed),
             }
             for (partition, body), s in sorted(self._slices.items())
@@ -53,6 +55,7 @@ class RunStats:
                 "downloaded": sum(s.downloaded for s in self._slices.values()),
                 "unchanged": sum(s.unchanged for s in self._slices.values()),
                 "skipped_existing": sum(s.skipped for s in self._slices.values()),
+                "attachment_unavailable": sum(s.attachment_unavailable for s in self._slices.values()),
                 "failed": len(failures),
             },
         }

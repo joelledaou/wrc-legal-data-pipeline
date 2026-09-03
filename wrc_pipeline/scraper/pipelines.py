@@ -1,7 +1,11 @@
 """Item pipeline: hash the document, store it in MinIO, upsert metadata in MongoDB.
 
-Landing-zone layout: <body>/<partition_date>/<original-filename>, e.g.
+Landing-zone layout: <body>/<partition_date>/<page-slug>.<ext>, e.g.
     workplace-relations-commission/2024-01-01/adj-00047352.html
+    employment-appeals-tribunal/2009-12-01/pw42_2009.pdf   (PDF attachment)
+
+The slug is the case page's own filename, so a record's object is named the
+same way whether the page itself or its PDF/DOC attachment was stored.
 
 Idempotency: metadata is upserted on the record's stable _id (the document URL
 path), so re-runs never create duplicates. The SHA-256 file hash detects
@@ -117,7 +121,5 @@ class MongoMinioStorePipeline:
 
     @staticmethod
     def _object_key(record: dict, file_ext: str) -> str:
-        filename = posixpath.basename(urlparse(record["doc_url"]).path) or "document"
-        if not filename.lower().endswith(file_ext):
-            filename += file_ext
-        return f"{record['body']}/{record['partition_date']}/{filename}"
+        slug = posixpath.splitext(posixpath.basename(urlparse(record["doc_url"]).path))[0] or "document"
+        return f"{record['body']}/{record['partition_date']}/{slug}{file_ext}"
