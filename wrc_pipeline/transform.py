@@ -49,48 +49,17 @@ CHROME_SELECTORS = ["header", "footer", "nav", "script", "noscript", "style", "i
                     "#globalCookieBar", ".social-banner", "#skippy"]
 
 
-def extract_relevant_html(raw_html: bytes, title: str) -> tuple[bytes, dict]:
-    """Return (cleaned standalone HTML document, quality info)."""
-    soup = BeautifulSoup(raw_html, "lxml")
-    quality: dict = {"extraction": "content-selector"}
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Transform landing-zone documents into the processed zone.")
+    parser.add_argument("--start-date", required=True, type=date.fromisoformat,
+                        help="Range start, inclusive (YYYY-MM-DD)")
+    parser.add_argument("--end-date", required=True, type=date.fromisoformat,
+                        help="Range end, exclusive (YYYY-MM-DD)")
+    args = parser.parse_args(argv)
 
-    content = None
-    for selector in CONTENT_SELECTORS:
-        content = soup.select_one(selector)
-        if content is not None:
-            break
-
-    if content is None:
-        # Unexpected page layout: keep the whole body but strip obvious chrome.
-        quality["extraction"] = "fallback-body"
-        content = soup.body or soup
-
-    for selector in CHROME_SELECTORS:
-        for element in content.select(selector):
-            element.decompose()
-    # "Return to Search" back-link is navigation, not decision content.
-    for link in content.find_all("a", string=re.compile(r"Return to Search", re.I)):
-        link.decompose()
-
-    text = content.get_text(" ", strip=True)
-    quality["content_chars"] = len(text)
-    if len(text) < 100:
-        quality["warning"] = "extracted content suspiciously short"
-
-    document = (
-        "<!DOCTYPE html>\n"
-        f'<html lang="en"><head><meta charset="utf-8"><title>{title}</title></head>\n'
-        f"<body>\n{content.decode()}\n</body></html>\n"
-    )
-    return document.encode("utf-8"), quality
-
-
-def safe_filename(identifier: str, fallback: str) -> str:
-    """Identifiers like "UD962/2014" or "IR - SC - 00001595" are not valid
-    object names; collapse everything unsafe to single dashes."""
-    name = re.sub(r"[^A-Za-z0-9._-]+", "-", identifier)
-    name = re.sub(r"-{2,}", "-", name).strip("-.")
-    return name or fallback
+    setup_json_logging(get_settings().log_level)
+    stats = transform_range(args.start_date, args.end_date)
+    return 0 if stats["failed"] == 0 else 2
 
 
 def transform_range(start_date: date, end_date: date) -> dict:
@@ -162,17 +131,48 @@ def transform_range(start_date: date, end_date: date) -> dict:
     return stats
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Transform landing-zone documents into the processed zone.")
-    parser.add_argument("--start-date", required=True, type=date.fromisoformat,
-                        help="Range start, inclusive (YYYY-MM-DD)")
-    parser.add_argument("--end-date", required=True, type=date.fromisoformat,
-                        help="Range end, exclusive (YYYY-MM-DD)")
-    args = parser.parse_args(argv)
+def extract_relevant_html(raw_html: bytes, title: str) -> tuple[bytes, dict]:
+    """Return (cleaned standalone HTML document, quality info)."""
+    soup = BeautifulSoup(raw_html, "lxml")
+    quality: dict = {"extraction": "content-selector"}
 
-    setup_json_logging(get_settings().log_level)
-    stats = transform_range(args.start_date, args.end_date)
-    return 0 if stats["failed"] == 0 else 2
+    content = None
+    for selector in CONTENT_SELECTORS:
+        content = soup.select_one(selector)
+        if content is not None:
+            break
+
+    if content is None:
+        # Unexpected page layout: keep the whole body but strip obvious chrome.
+        quality["extraction"] = "fallback-body"
+        content = soup.body or soup
+
+    for selector in CHROME_SELECTORS:
+        for element in content.select(selector):
+            element.decompose()
+    # "Return to Search" back-link is navigation, not decision content.
+    for link in content.find_all("a", string=re.compile(r"Return to Search", re.I)):
+        link.decompose()
+
+    text = content.get_text(" ", strip=True)
+    quality["content_chars"] = len(text)
+    if len(text) < 100:
+        quality["warning"] = "extracted content suspiciously short"
+
+    document = (
+        "<!DOCTYPE html>\n"
+        f'<html lang="en"><head><meta charset="utf-8"><title>{title}</title></head>\n'
+        f"<body>\n{content.decode()}\n</body></html>\n"
+    )
+    return document.encode("utf-8"), quality
+
+
+def safe_filename(identifier: str, fallback: str) -> str:
+    """Identifiers like "UD962/2014" or "IR - SC - 00001595" are not valid
+    object names; collapse everything unsafe to single dashes."""
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", identifier)
+    name = re.sub(r"-{2,}", "-", name).strip("-.")
+    return name or fallback
 
 
 if __name__ == "__main__":

@@ -20,20 +20,6 @@ from datetime import datetime, timezone
 _FIELDS_KEY = "_wrc_fields"
 
 
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        entry: dict = {
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
-            "level": record.levelname,
-            "logger": record.name,
-            "event": record.getMessage(),
-        }
-        entry.update(getattr(record, _FIELDS_KEY, {}))
-        if record.exc_info and record.exc_info[0] is not None:
-            entry["exception"] = self.formatException(record.exc_info)
-        return json.dumps(entry, ensure_ascii=False, default=str)
-
-
 def setup_json_logging(level: str = "INFO") -> None:
     """Install a JSON formatter on the root logger (idempotent)."""
     root = logging.getLogger()
@@ -51,3 +37,17 @@ def setup_json_logging(level: str = "INFO") -> None:
 def log_event(logger: logging.Logger, event: str, level: int = logging.INFO, **fields) -> None:
     """Emit one structured event with arbitrary extra fields."""
     logger.log(level, event, extra={_FIELDS_KEY: fields})
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        entry: dict = {
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "event": record.getMessage(),
+        }
+        entry.update(getattr(record, _FIELDS_KEY, {}))
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry, ensure_ascii=False, default=str)

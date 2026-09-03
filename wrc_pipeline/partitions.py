@@ -19,10 +19,6 @@ class Partition:
     end: date         # last day covered (inclusive) — the site's date filters are inclusive
 
 
-def _next_month(d: date) -> date:
-    return date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
-
-
 def build_partitions(start_date: date, end_date: date, size: str = "monthly") -> list[Partition]:
     """Partition [start_date, end_date) into monthly, weekly, or daily chunks.
 
@@ -53,3 +49,7 @@ def build_partitions(start_date: date, end_date: date, size: str = "monthly") ->
         raise ValueError(f"Unknown partition size '{size}'. Use monthly, weekly, or daily.")
 
     return partitions
+
+
+def _next_month(d: date) -> date:
+    return date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)

@@ -131,4 +131,9 @@ wrc_pipeline/
     └── spiders/decisions.py   # search + pagination + document spider
 ```
 
+Each module reads top-down (the "stepdown rule"): entry points and public
+functions come first, and every function is placed above the helpers it calls,
+so a file can be walked from the first definition to the last. The one exception
+is `orchestration.py`, where Dagster requires the ops to be defined before the job.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions.

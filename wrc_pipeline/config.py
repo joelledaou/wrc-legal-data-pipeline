@@ -11,10 +11,6 @@ import os
 from dataclasses import dataclass, field
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    return os.getenv(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
-
-
 # The four "Body" filters on the left side of the WRC decisions search page,
 # mapped to the `body` query-string id the site uses for each of them.
 WRC_BODIES: dict[str, int] = {
@@ -95,3 +91,7 @@ class Settings:
 
 def get_settings() -> Settings:
     return Settings()
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in ("1", "true", "yes", "on")

@@ -96,7 +96,8 @@ class DecisionsSpider(scrapy.Spider):
         self._landing = get_mongo_collection(self.cfg, self.cfg.landing_collection)
         self._minio = get_minio_client(self.cfg)
 
-    # ------------------------------------------------------------------ search
+    # -------------------------------------------------------------- crawl flow
+    # start -> search pages -> result rows -> documents (stored by the item pipeline)
 
     async def start(self):
         log_event(
@@ -114,16 +115,6 @@ class DecisionsSpider(scrapy.Spider):
                     errback=self.on_search_error,
                     cb_kwargs={"partition": partition, "body_name": body_name, "body_id": body_id, "page": 1},
                 )
-
-    def _search_url(self, partition: Partition, body_id: int, page: int) -> str:
-        params = {
-            "decisions": "1",
-            "from": partition.start.strftime("%d/%m/%Y"),
-            "to": partition.end.strftime("%d/%m/%Y"),
-            "body": str(body_id),
-            "pageNumber": str(page),
-        }
-        return f"{self.cfg.search_url}?{urlencode(params)}"
 
     def parse_search_page(self, response, partition: Partition, body_name: str, body_id: int, page: int):
         stats = self.run_stats.slice(partition.label, body_name)
@@ -158,8 +149,6 @@ class DecisionsSpider(scrapy.Spider):
 
         for row in response.css("#searchResult .each-item"):
             yield from self._handle_result_row(row, response, partition, body_name)
-
-    # ----------------------------------------------------------------- records
 
     def _handle_result_row(self, row, response, partition: Partition, body_name: str):
         stats = self.run_stats.slice(partition.label, body_name)
@@ -200,16 +189,6 @@ class DecisionsSpider(scrapy.Spider):
             cb_kwargs={"record": record},
         )
 
-    def _already_stored(self, record_id: str) -> bool:
-        """True if the record exists in Mongo with a hash and its file is in MinIO."""
-        existing = self._landing.find_one({"_id": record_id}, {"file_hash": 1, "file_path": 1})
-        return bool(
-            existing
-            and existing.get("file_hash")
-            and existing.get("file_path")
-            and object_exists(self._minio, self.cfg.landing_bucket, existing["file_path"])
-        )
-
     def parse_document(self, response, record: dict):
         content_type = (response.headers.get("Content-Type") or b"").decode("latin-1")
         file_ext = self._file_extension(response)
@@ -237,14 +216,63 @@ class DecisionsSpider(scrapy.Spider):
             file_ext=file_ext,
         )
 
-    def _reject_document(self, response, record: dict, event: str, level: int, error: str, **fields):
-        """Record a document we will not store: count it as failed and log why."""
-        self.run_stats.slice(record["partition_label"], record["body"]).failed.append(
-            {"url": response.url, "identifier": record["identifier"], "error": error}
+    # ------------------------------------------------------------------ errors
+
+    def on_search_error(self, failure):
+        kwargs = failure.request.cb_kwargs
+        partition, body_name = kwargs["partition"], kwargs["body_name"]
+        error = self._describe_failure(failure)
+        self.run_stats.slice(partition.label, body_name).failed.append(
+            {"url": failure.request.url, "error": f"search page failed: {error}"}
         )
-        log_event(logger, event, level=level,
+        log_event(logger, "search_page_failed", level=logging.ERROR,
+                  partition=partition.label, body=body_name, url=failure.request.url, error=error)
+
+    def on_document_error(self, failure):
+        record = failure.request.cb_kwargs["record"]
+        error = self._describe_failure(failure)
+        self.run_stats.slice(record["partition_label"], record["body"]).failed.append(
+            {"url": failure.request.url, "identifier": record["identifier"], "error": error}
+        )
+        log_event(logger, "download_failed", level=logging.WARNING,
                   partition=record["partition_label"], body=record["body"],
-                  identifier=record["identifier"], url=response.url, error=error, **fields)
+                  identifier=record["identifier"], url=failure.request.url, error=error)
+
+    # ----------------------------------------------------------------- summary
+
+    def closed(self, reason: str):
+        summary = self.run_stats.summary()
+        log_event(logger, "run_summary", reason=reason, **summary)
+
+    # ----------------------------------------------------------------- helpers
+    # Listed in the order they are first used by the methods above.
+
+    def _search_url(self, partition: Partition, body_id: int, page: int) -> str:
+        params = {
+            "decisions": "1",
+            "from": partition.start.strftime("%d/%m/%Y"),
+            "to": partition.end.strftime("%d/%m/%Y"),
+            "body": str(body_id),
+            "pageNumber": str(page),
+        }
+        return f"{self.cfg.search_url}?{urlencode(params)}"
+
+    def _already_stored(self, record_id: str) -> bool:
+        """True if the record exists in Mongo with a hash and its file is in MinIO."""
+        existing = self._landing.find_one({"_id": record_id}, {"file_hash": 1, "file_path": 1})
+        return bool(
+            existing
+            and existing.get("file_hash")
+            and existing.get("file_path")
+            and object_exists(self._minio, self.cfg.landing_bucket, existing["file_path"])
+        )
+
+    @staticmethod
+    def _parse_date(raw: str | None) -> str | None:
+        try:
+            return datetime.strptime((raw or "").strip(), "%d/%m/%Y").date().isoformat()
+        except ValueError:
+            return None
 
     def _file_extension(self, response) -> str | None:
         """Resolve the storage extension, or None if the document type is not one we handle."""
@@ -281,34 +309,14 @@ class DecisionsSpider(scrapy.Spider):
                 return "no HTML document markup found"
         return None
 
-    @staticmethod
-    def _parse_date(raw: str | None) -> str | None:
-        try:
-            return datetime.strptime((raw or "").strip(), "%d/%m/%Y").date().isoformat()
-        except ValueError:
-            return None
-
-    # ------------------------------------------------------------------ errors
-
-    def on_search_error(self, failure):
-        kwargs = failure.request.cb_kwargs
-        partition, body_name = kwargs["partition"], kwargs["body_name"]
-        error = self._describe_failure(failure)
-        self.run_stats.slice(partition.label, body_name).failed.append(
-            {"url": failure.request.url, "error": f"search page failed: {error}"}
-        )
-        log_event(logger, "search_page_failed", level=logging.ERROR,
-                  partition=partition.label, body=body_name, url=failure.request.url, error=error)
-
-    def on_document_error(self, failure):
-        record = failure.request.cb_kwargs["record"]
-        error = self._describe_failure(failure)
+    def _reject_document(self, response, record: dict, event: str, level: int, error: str, **fields):
+        """Record a document we will not store: count it as failed and log why."""
         self.run_stats.slice(record["partition_label"], record["body"]).failed.append(
-            {"url": failure.request.url, "identifier": record["identifier"], "error": error}
+            {"url": response.url, "identifier": record["identifier"], "error": error}
         )
-        log_event(logger, "download_failed", level=logging.WARNING,
+        log_event(logger, event, level=level,
                   partition=record["partition_label"], body=record["body"],
-                  identifier=record["identifier"], url=failure.request.url, error=error)
+                  identifier=record["identifier"], url=response.url, error=error, **fields)
 
     @staticmethod
     def _describe_failure(failure) -> str:
@@ -316,17 +324,11 @@ class DecisionsSpider(scrapy.Spider):
             return f"HTTP {failure.value.response.status}"
         return f"{failure.type.__name__}: {failure.getErrorMessage()}"
 
-    # ----------------------------------------------------------------- summary
-
-    def closed(self, reason: str):
-        summary = self.run_stats.summary()
-        log_event(logger, "run_summary", reason=reason, **summary)
-
-
-def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
 
 def _clean(text: str | None) -> str:
     """Collapse the site's embedded newlines/whitespace runs to single spaces."""
     return " ".join((text or "").split())
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()

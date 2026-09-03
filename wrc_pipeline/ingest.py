@@ -18,21 +18,6 @@ from wrc_pipeline.logging_utils import setup_json_logging
 from wrc_pipeline.scraper.spiders.decisions import DecisionsSpider
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Scrape WRC decisions and determinations.")
-    parser.add_argument("--start-date", required=True, type=date.fromisoformat,
-                        help="Range start, inclusive (YYYY-MM-DD)")
-    parser.add_argument("--end-date", required=True, type=date.fromisoformat,
-                        help="Range end, exclusive (YYYY-MM-DD)")
-    parser.add_argument("--bodies", default=None,
-                        help="Comma-separated subset of bodies (default: all four)")
-    parser.add_argument("--partition-size", default=None, choices=["monthly", "weekly", "daily"],
-                        help="Override PARTITION_SIZE from the environment")
-    parser.add_argument("--force", action="store_true",
-                        help="Re-fetch documents we already hold (detect changes via file hash)")
-    return parser.parse_args(argv)
-
-
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     cfg = get_settings()
@@ -55,6 +40,21 @@ def main(argv: list[str] | None = None) -> int:
 
     finish_reason = crawler.stats.get_value("finish_reason")
     return 0 if finish_reason == "finished" else 2
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Scrape WRC decisions and determinations.")
+    parser.add_argument("--start-date", required=True, type=date.fromisoformat,
+                        help="Range start, inclusive (YYYY-MM-DD)")
+    parser.add_argument("--end-date", required=True, type=date.fromisoformat,
+                        help="Range end, exclusive (YYYY-MM-DD)")
+    parser.add_argument("--bodies", default=None,
+                        help="Comma-separated subset of bodies (default: all four)")
+    parser.add_argument("--partition-size", default=None, choices=["monthly", "weekly", "daily"],
+                        help="Override PARTITION_SIZE from the environment")
+    parser.add_argument("--force", action="store_true",
+                        help="Re-fetch documents we already hold (detect changes via file hash)")
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":

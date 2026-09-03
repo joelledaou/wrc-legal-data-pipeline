@@ -27,16 +27,6 @@ class DateRangeConfig(Config):
     force_refetch: bool = False
 
 
-def _run_module(context: OpExecutionContext, module: str, arguments: list[str]) -> None:
-    command = [sys.executable, "-m", module, *arguments]
-    context.log.info("running: %s", " ".join(command))
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    for line in process.stdout:
-        context.log.info(line.rstrip())
-    if process.wait() != 0:
-        raise RuntimeError(f"{module} exited with code {process.returncode}")
-
-
 @op
 def ingest_decisions(context: OpExecutionContext, config: DateRangeConfig) -> dict:
     """Scrape the configured date range into the landing zone (Mongo + MinIO)."""
@@ -59,9 +49,21 @@ def transform_decisions(context: OpExecutionContext, date_range: dict) -> None:
     )
 
 
+# The ops must be defined above the job: Dagster runs this function body at
+# decoration time to wire the graph, so the names it calls must already exist.
 @job
 def wrc_decisions_job():
     transform_decisions(ingest_decisions())
+
+
+def _run_module(context: OpExecutionContext, module: str, arguments: list[str]) -> None:
+    command = [sys.executable, "-m", module, *arguments]
+    context.log.info("running: %s", " ".join(command))
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    for line in process.stdout:
+        context.log.info(line.rstrip())
+    if process.wait() != 0:
+        raise RuntimeError(f"{module} exited with code {process.returncode}")
 
 
 defs = Definitions(jobs=[wrc_decisions_job])
