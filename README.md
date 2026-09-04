@@ -100,13 +100,17 @@ accepts `--bodies` and `--force-refetch`.
 > ingestion to take a few minutes: the scraper is deliberately polite
 > (AutoThrottle, retries, identified User-Agent, robots.txt respected).
 
-> All 2024 decisions are HTML pages. To exercise the PDF path, use a range
-> where the case pages carry attachments, e.g. the Equality Tribunal in 2000
-> (42 records) or the Employment Appeals Tribunal in December 2009:
+> All 2024 decisions are HTML pages. To see PDFs stored, use a range where
+> the case pages carry attachments, e.g. the Employment Appeals Tribunal in
+> December 2009 (69 records):
 >
 > ```bash
-> docker compose run --rm pipeline python -m wrc_pipeline.ingest --start-date 2000-01-01 --end-date 2001-01-01 --bodies equality-tribunal
+> docker compose run --rm pipeline python -m wrc_pipeline.ingest --start-date 2009-12-01 --end-date 2010-01-01 --bodies employment-appeals-tribunal
 > ```
+>
+> The Equality Tribunal's attachments (e.g. the year 2000, 42 records) are
+> disallowed by the site's robots.txt, so for those the stub page is stored
+> and the record is flagged with `attachment_error`; no PDF is expected.
 
 ## Verify the results
 
