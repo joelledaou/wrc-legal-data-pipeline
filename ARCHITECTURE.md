@@ -12,6 +12,11 @@ identically; only the searched window is clamped. A failed month can be re-run
 alone, idempotently. `PARTITION_SIZE` switches to `weekly`/`daily` if a source ever
 publishes too densely for months.
 
+Although the search page is an ASP.NET form, its pagination links expose a
+plain GET API (`?decisions=1&from=…&to=…&body=…&pageNumber=N`). We read the
+total count from page 1 and fan out the remaining pages concurrently, with no
+ViewState to post and no browser needed.
+
 ## Retries and rate limiting
 
 Scrapy's RetryMiddleware retries transient failures (408/429/5xx, timeouts,

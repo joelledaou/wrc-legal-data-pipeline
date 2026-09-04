@@ -20,8 +20,9 @@ orchestrated with Dagster. Everything runs in Docker.
 
 - **Ingestion** scrapes each of the four bodies (Labour Court, WRC, Employment
   Appeals Tribunal, Equality Tribunal) using the site's start/finish date
-  filters, one search per partition (monthly by default). Every search result
-  links to an HTML case page. Usually that page is the decision and is stored
+  filters, one search per partition (monthly by default). The search is a
+  plain GET request, so result pages are fetched concurrently. Every search
+  result links to an HTML case page. Usually that page is the decision and is stored
   as `.html`. Older Equality Tribunal and Employment Appeals Tribunal pages
   are stubs linking a PDF/DOC, which is downloaded and stored instead; if the
   attachment cannot be fetched (robots.txt disallows the Equality Tribunal
