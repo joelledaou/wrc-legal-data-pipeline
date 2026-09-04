@@ -52,11 +52,18 @@ orchestrated with Dagster. Everything runs in Docker.
 
 ## Run it
 
-**1. Configure** (defaults work out of the box):
+**1. Clone and configure** (defaults work out of the box):
 
 ```bash
+git clone https://github.com/joelledaou/wrc-legal-data-pipeline.git
+cd wrc-legal-data-pipeline
 cp .env.example .env
 ```
+
+Make sure the default ports are free on your machine: `27017` (MongoDB),
+`9000` and `9001` (MinIO API and console), and `3000` (Dagster UI). If any
+of them is already in use, change the corresponding `MONGO_PORT`,
+`MINIO_API_PORT`, `MINIO_CONSOLE_PORT`, or `DAGSTER_PORT` value in `.env`.
 
 **2. Start everything:**
 
@@ -96,11 +103,7 @@ Both commands accept `--partition-size`; if the ingestion used one, pass the
 same to the transformation so it reads the same partitions. Ingestion also
 accepts `--bodies` and `--force-refetch`.
 
-> January 2024 contains ~270 decisions across all bodies. Expect the first
-> ingestion to take a few minutes: the scraper is deliberately polite
-> (AutoThrottle, retries, identified User-Agent, robots.txt respected).
-
-> All 2024 decisions are HTML pages. To see PDFs stored, use a range where
+> All recent decisions are HTML pages. To see PDFs stored, use a range where
 > the case pages carry attachments, e.g. the Employment Appeals Tribunal in
 > December 2009 (69 records):
 >
