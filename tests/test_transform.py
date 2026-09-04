@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from wrc_pipeline.transform import extract_decision_html, processed_key
 
 CASE_PAGE = b"""
@@ -53,3 +55,16 @@ def test_processed_key_can_add_the_page_name_for_colliding_identifiers():
     assert processed_key(record, ".html", with_slug=True) == (
         "workplace-relations-commission/2025-01-29/ADJ-00054981-adj-000549811.html"
     )
+
+
+def test_extraction_on_a_real_case_page_keeps_the_decision_and_drops_the_site_chrome():
+    raw = (Path(__file__).parent / "fixtures" / "case_page_html_decision.html").read_bytes()
+
+    html, quality = extract_decision_html(raw, "PWD2355")
+    text = html.decode()
+
+    assert quality["extraction"] == "content-selector"
+    assert quality["content_chars"] > 1000
+    assert "PWD2355" in text
+    for chrome in ("Return to Search", "Gaeilge", "cookie_policy", "Google Tag Manager"):
+        assert chrome not in text
