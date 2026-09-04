@@ -1,6 +1,6 @@
 # WRC Legal Data Pipeline
 
-A Scrapy-based pipeline that scrapes decisions and determinations from
+An idempotent Scrapy-based pipeline that scrapes decisions and determinations from
 [Workplace Relations](https://www.workplacerelations.ie/en/search/), stores the
 documents in object storage (MinIO), the metadata in a NoSQL database
 (MongoDB), and transforms the landed data into a clean processed zone,
