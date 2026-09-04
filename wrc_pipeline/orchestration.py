@@ -32,12 +32,14 @@ def ingest_decisions(context: OpExecutionContext, config: DateRangeConfig) -> di
     if config.force_refetch:
         arguments.append("--force-refetch")
     run_module(context, "wrc_pipeline.ingest", arguments)
-    return {"start_date": config.start_date, "end_date": config.end_date}
+    return {"start_date": config.start_date, "end_date": config.end_date, "partition_size": config.partition_size}
 
 
 @op
 def transform_decisions(context: OpExecutionContext, date_range: dict) -> None:
     arguments = ["--start-date", date_range["start_date"], "--end-date", date_range["end_date"]]
+    if date_range["partition_size"]:
+        arguments += ["--partition-size", date_range["partition_size"]]
     run_module(context, "wrc_pipeline.transform", arguments)
 
 

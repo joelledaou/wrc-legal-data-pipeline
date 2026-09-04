@@ -32,7 +32,8 @@ orchestrated with Dagster. Everything runs in Docker.
   the attachment cannot be fetched (robots.txt disallows the Equality
   Tribunal import folder), the page is stored, the record is flagged with
   `attachment_error`, and the run summary counts it as `attachment_unavailable`.
-- **Transformation** reads a date range back from Mongo, strips WRC page
+- **Transformation** reads the partitions covering a date range back from
+  Mongo (so it uses the same partition size as the ingestion), strips WRC page
   chrome from HTML files with BeautifulSoup (PDF/DOC pass through unchanged),
   renames every file to `<identifier>.<ext>` (with the page name as a suffix
   when two records share an identifier), writes it to the `wrc-processed`

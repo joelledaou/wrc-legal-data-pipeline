@@ -1,8 +1,9 @@
 """Landing zone to processed zone.
 
-For every landing record whose partition_date falls in [start_date, end_date):
-HTML files are reduced to the decision content with BeautifulSoup, PDF/DOC
-files pass through unchanged, and the result is written to the processed
+For every landing record in the partitions covering [start_date, end_date),
+the same calendar periods the ingestion stamps as partition_date: HTML files
+are reduced to the decision content with BeautifulSoup, PDF/DOC files pass
+through unchanged, and the result is written to the processed
 bucket as <body>/<partition_date>/<identifier>.<ext> with its metadata
 upserted into the processed collection. When two records share an identifier
 (the site occasionally publishes a case twice, or mislabels one), the later one
@@ -30,6 +31,7 @@ from bs4 import BeautifulSoup
 
 from wrc_pipeline.config import DECISION_CONTENT_SELECTORS, Settings
 from wrc_pipeline.logging_utils import log_event, setup_json_logging
+from wrc_pipeline.partitions import PARTITION_SIZES, calendar_period
 from wrc_pipeline.storage import ensure_bucket, get_minio_client, get_mongo_collection, get_object, object_exists
 
 logger = logging.getLogger("wrc.transform")
@@ -53,15 +55,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Transform landing-zone documents into the processed zone.")
     parser.add_argument("--start-date", required=True, type=date.fromisoformat, help="inclusive, YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, type=date.fromisoformat, help="exclusive, YYYY-MM-DD")
+    parser.add_argument(
+        "--partition-size", choices=PARTITION_SIZES, help="the size the ingestion used (overrides PARTITION_SIZE)"
+    )
     args = parser.parse_args(argv)
 
     setup_json_logging(Settings().log_level)
-    stats = transform_range(args.start_date, args.end_date)
+    stats = transform_range(args.start_date, args.end_date, args.partition_size)
     return 0 if stats["failed"] == 0 else 2
 
 
-def transform_range(start_date: date, end_date: date) -> dict:
+def transform_range(start_date: date, end_date: date, partition_size: str | None = None) -> dict:
     cfg = Settings()
+    # Whole partitions: a record is stamped with its period's calendar start, which
+    # may precede the requested start_date (e.g. a run starting mid-week or mid-month).
+    range_start = calendar_period(start_date, partition_size or cfg.partition_size)[0]
     landing = get_mongo_collection(cfg, cfg.landing_collection)
     processed = get_mongo_collection(cfg, cfg.processed_collection)
     minio = get_minio_client(cfg)
@@ -69,12 +77,18 @@ def transform_range(start_date: date, end_date: date) -> dict:
     processed.create_index("file_path")
 
     query = {
-        "partition_date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()},
+        "partition_date": {"$gte": range_start.isoformat(), "$lt": end_date.isoformat()},
         "file_path": {"$exists": True},
     }
     stats = {"fetched": 0, "transformed": 0, "passed_through": 0, "skipped_unchanged": 0, "failed": 0}
     failures = []
-    log_event(logger, "transform_start", start_date=start_date.isoformat(), end_date=end_date.isoformat())
+    log_event(
+        logger,
+        "transform_start",
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        partitions_from=range_start.isoformat(),
+    )
 
     for record in landing.find(query):
         stats["fetched"] += 1
