@@ -187,6 +187,7 @@ class DecisionsSpider(scrapy.Spider):
                     callback=self.parse_document,
                     errback=self.on_attachment_error,
                     cb_kwargs={"record": {**record, "attachment_url": attachment_url}, "page_response": response},
+                    dont_filter=True,  # two case pages may link the same file; each record needs it
                 )
                 return
             content_chars = self._content_chars(response)
