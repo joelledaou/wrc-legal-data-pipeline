@@ -9,6 +9,7 @@ RUN uv sync --frozen --no-install-project --extra test
 
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app \
     PYTHONUNBUFFERED=1
 
 COPY . .
