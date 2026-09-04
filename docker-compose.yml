@@ -33,6 +33,7 @@ services:
 
   dagster:
     build: .
+    image: wrc-legal-data-pipeline
     command: dagster dev -m wrc_pipeline.orchestration -h 0.0.0.0 -p 3000
     env_file: .env
     environment:
@@ -49,6 +50,7 @@ services:
 
   pipeline:
     build: .
+    image: wrc-legal-data-pipeline
     profiles: ["cli"]
     env_file: .env
     depends_on:

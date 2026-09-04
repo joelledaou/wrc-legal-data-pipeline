@@ -1,14 +1,14 @@
 import hashlib
 
-from wrc_pipeline.scraper.pipelines import VOLATILE_HTML_RE, object_key
+from wrc_pipeline.scraper.pipelines import HTML_COMMENT_RE, object_key
 from wrc_pipeline.scraper.spiders.decisions import DecisionsSpider
 
 
-def test_hash_ignores_the_servers_elapsed_time_comment():
+def test_hash_ignores_server_comments():
     first = b"<html><body>decision</body></html><!-- Elapsed time: 12ms -->"
-    second = b"<html><body>decision</body></html><!-- Elapsed time: 98ms -->"
+    second = b"<!-- cached or not being index.aspx page --><html><body>decision</body></html><!-- Elapsed time: 98ms -->"
 
-    hashes = {hashlib.sha256(VOLATILE_HTML_RE.sub(b"", page)).hexdigest() for page in (first, second)}
+    hashes = {hashlib.sha256(HTML_COMMENT_RE.sub(b"", page)).hexdigest() for page in (first, second)}
 
     assert len(hashes) == 1
 

@@ -6,7 +6,11 @@ GET API:
     /en/search/?decisions=1&from=DD/MM/YYYY&to=DD/MM/YYYY&body=<id>&pageNumber=N
 
 so there is no ViewState to post. For each (partition, body) slice we fetch
-page 1, read the total count, and fan out the remaining pages in parallel.
+page 1, read the total count, and fan out the remaining pages in parallel. The
+listing is not stable between requests (ties in the date ordering shift page
+boundaries), so a record can appear twice and another not at all. Duplicate rows
+are counted and skipped, and a slice whose distinct records fall short of the
+reported total is flagged in the summary so it can be re-run.
 
 Every result links to an HTML case page. Usually that page is the decision and
 is stored as .html. Older records (Equality Tribunal up to 2002, Employment
@@ -85,6 +89,7 @@ class DecisionsSpider(scrapy.Spider):
             force_refetch.strip().lower() in ("1", "true", "yes") if force_refetch else self.cfg.force_refetch
         )
         self.run_stats = RunStats()
+        self._seen_ids: set[str] = set()
         # Only for the skip check and last_seen touch. The item pipeline owns document writes.
         self._landing = get_mongo_collection(self.cfg, self.cfg.landing_collection)
         self._minio = get_minio_client(self.cfg)
@@ -135,8 +140,15 @@ class DecisionsSpider(scrapy.Spider):
             "partition_label": partition.label,
         }
 
+        stats = self.run_stats.slice(partition.label, body_name)
+        if record["record_id"] in self._seen_ids:
+            stats.duplicate_rows += 1
+            return
+        self._seen_ids.add(record["record_id"])
+        stats.listed += 1
+
         if not self.force_refetch and self._already_stored(record["record_id"]):
-            self.run_stats.slice(partition.label, body_name).skipped += 1
+            stats.skipped += 1
             self._landing.update_one(
                 {"_id": record["record_id"]},
                 {"$set": {"last_seen_at": datetime.now(timezone.utc).isoformat()}},
@@ -227,7 +239,14 @@ class DecisionsSpider(scrapy.Spider):
         yield from self._document_item(page, {**record, "attachment_error": error}, ".html", page_content_type)
 
     def closed(self, reason: str):
-        log_event(logger, "run_summary", reason=reason, **self.run_stats.summary())
+        summary = self.run_stats.summary()
+        for stats in summary["slices"]:
+            if stats["missing_from_listing"]:
+                log_event(logger, "listing_incomplete", level=logging.WARNING,
+                          partition=stats["partition"], body=stats["body"],
+                          found=stats["found"], listed=stats["listed"],
+                          error="site listed fewer distinct records than its result count; re-run this partition")
+        log_event(logger, "run_summary", reason=reason, **summary)
 
     def _search_request(self, partition: Partition, body_name: str, body_id: int, page: int) -> scrapy.Request:
         params = {

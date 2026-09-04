@@ -44,3 +44,12 @@ def test_processed_key_renames_to_a_safe_identifier():
     assert key("IR - SC - 00001595") == "labour-court/2024-01-01/IR-SC-00001595.html"
     assert key("UD962/2014") == "labour-court/2024-01-01/UD962-2014.html"
     assert key("") == "labour-court/2024-01-01/adj-00047352.html"
+
+
+def test_processed_key_can_add_the_page_name_for_colliding_identifiers():
+    record = {"_id": "/en/cases/2025/january/adj-000549811.html", "identifier": "ADJ-00054981",
+              "file_path": "workplace-relations-commission/2025-01-29/adj-000549811.html"}
+
+    assert processed_key(record, ".html", with_slug=True) == (
+        "workplace-relations-commission/2025-01-29/ADJ-00054981-adj-000549811.html"
+    )

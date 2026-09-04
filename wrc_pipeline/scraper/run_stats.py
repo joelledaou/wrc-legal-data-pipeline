@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 @dataclass
 class SliceStats:
     found: int = 0  # results the site reports for this slice
+    listed: int = 0  # distinct records actually present in the listing pages
+    duplicate_rows: int = 0  # listing rows repeating a record already seen this run
     downloaded: int = 0  # fetched and stored (new or changed)
     unchanged: int = 0  # fetched but identical to what we already hold
     skipped: int = 0  # known records not re-fetched
@@ -17,6 +19,9 @@ class SliceStats:
     def as_dict(self) -> dict:
         return {
             "found": self.found,
+            "listed": self.listed,
+            "missing_from_listing": max(self.found - self.listed, 0),
+            "duplicate_rows": self.duplicate_rows,
             "scraped": self.downloaded + self.unchanged,
             "downloaded": self.downloaded,
             "unchanged": self.unchanged,

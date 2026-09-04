@@ -4,8 +4,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-COPY pyproject.toml ./
-RUN uv venv && uv pip install -r pyproject.toml --extra test
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --extra test
 
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH" \

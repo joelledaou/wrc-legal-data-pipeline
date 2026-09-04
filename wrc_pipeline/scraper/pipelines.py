@@ -28,9 +28,10 @@ from wrc_pipeline.storage import ensure_bucket, ensure_landing_indexes, get_mini
 
 logger = logging.getLogger("wrc.ingest")
 
-# The server appends a render-timing comment that differs on every request.
-# Stripped before hashing, or every page would look changed on every run.
-VOLATILE_HTML_RE = re.compile(rb"<!--\s*Elapsed time:[^>]*-->")
+# HTML comments carry server diagnostics that vary between requests ("Elapsed
+# time: ...", "cached or not being index.aspx page"). Stripped before hashing,
+# or pages would look changed from one run to the next.
+HTML_COMMENT_RE = re.compile(rb"<!--.*?-->", re.S)
 
 
 class MongoMinioStorePipeline:
@@ -54,7 +55,7 @@ class MongoMinioStorePipeline:
         content_type = record.pop("content_type") or "application/octet-stream"
         file_ext = record.pop("file_ext")
         if file_ext == ".html":
-            content = VOLATILE_HTML_RE.sub(b"", content)
+            content = HTML_COMMENT_RE.sub(b"", content)
 
         try:
             self._store(record, content, content_type, file_ext)

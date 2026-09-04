@@ -4,7 +4,10 @@ For every landing record whose partition_date falls in [start_date, end_date):
 HTML files are reduced to the decision content with BeautifulSoup, PDF/DOC
 files pass through unchanged, and the result is written to the processed
 bucket as <body>/<partition_date>/<identifier>.<ext> with its metadata
-upserted into the processed collection. The landing zone is never modified.
+upserted into the processed collection. When two records share an identifier
+(the site occasionally publishes a case twice, or mislabels one), the later one
+keeps the page name as a suffix so neither file is overwritten. The landing zone
+is never modified.
 
 Re-runs skip records whose landing file hash has not changed since they were
 last transformed.
@@ -53,6 +56,7 @@ def transform_range(start_date: date, end_date: date) -> dict:
     processed = get_mongo_collection(cfg, cfg.processed_collection)
     minio = get_minio_client(cfg)
     ensure_bucket(minio, cfg.processed_bucket)
+    processed.create_index("file_path")
 
     query = {
         "partition_date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()},
@@ -67,10 +71,16 @@ def transform_range(start_date: date, end_date: date) -> dict:
         try:
             extension = posixpath.splitext(record["file_path"])[1].lower()
             key = processed_key(record, extension)
+            other = processed.find_one({"file_path": key, "_id": {"$ne": record["_id"]}}, {"_id": 1})
+            if other:
+                key = processed_key(record, extension, with_slug=True)
+                log_event(logger, "identifier_collision", level=logging.WARNING,
+                          id=record["_id"], identifier=record.get("identifier"), other_id=other["_id"], file_path=key)
 
-            already = processed.find_one({"_id": record["_id"]}, {"source_file_hash": 1})
+            already = processed.find_one({"_id": record["_id"]}, {"source_file_hash": 1, "file_path": 1})
             if (
                 already
+                and already.get("file_path") == key
                 and already.get("source_file_hash") == record["file_hash"]
                 and object_exists(minio, cfg.processed_bucket, key)
             ):
@@ -143,13 +153,20 @@ def extract_decision_html(raw_html: bytes, title: str) -> tuple[bytes, dict]:
     return document.encode("utf-8"), quality
 
 
-def processed_key(record: dict, extension: str) -> str:
-    """Same folder as the landing object, file renamed to <identifier>.<ext>."""
+def processed_key(record: dict, extension: str, with_slug: bool = False) -> str:
+    """Same folder as the landing object, file renamed to <identifier>.<ext>.
+
+    `with_slug` appends the case page name, which is unique, for records whose
+    identifier is already taken by another record.
+    """
     folder = posixpath.dirname(record["file_path"])
+    slug = posixpath.splitext(posixpath.basename(record["_id"]))[0]
     # Identifiers like "UD962/2014" or "IR - SC - 00001595" are not valid object names.
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", record.get("identifier", ""))
-    name = re.sub(r"-{2,}", "-", name).strip("-.") or posixpath.splitext(posixpath.basename(record["_id"]))[0]
-    return posixpath.join(folder, name + extension)
+    name = re.sub(r"-{2,}", "-", name).strip("-.")
+    if with_slug and name:
+        name = f"{name}-{slug}"
+    return posixpath.join(folder, (name or slug) + extension)
 
 
 if __name__ == "__main__":

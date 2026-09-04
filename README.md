@@ -32,7 +32,8 @@ orchestrated with Dagster. Everything runs in Docker.
   `attachment_error`, and the run summary counts it as `attachment_unavailable`.
 - **Transformation** reads a date range back from Mongo, strips WRC page
   chrome from HTML files with BeautifulSoup (PDF/DOC pass through unchanged),
-  renames every file to `<identifier>.<ext>`, writes it to the `wrc-processed`
+  renames every file to `<identifier>.<ext>` (with the page name as a suffix
+  when two records share an identifier), writes it to the `wrc-processed`
   bucket under the same `<body>/<partition_date>/` folder as its landing
   object, and stores the enriched metadata (new path, new hash) in
   `decisions_processed`. The landing zone is never modified.
@@ -40,8 +41,9 @@ orchestrated with Dagster. Everything runs in Docker.
   creates no duplicates and skips files already downloaded. File hashes detect
   content changes (`--force-refetch` re-fetches and re-compares).
 - **Logs** are structured JSON on stdout: partition/body being processed,
-  found vs. scraped counts, every failed download with URL and error, and a
-  run summary.
+  found vs. listed vs. scraped counts, every failed download with URL and
+  error, a warning for any partition the site listed incompletely, and a run
+  summary.
 
 ## Prerequisites
 
