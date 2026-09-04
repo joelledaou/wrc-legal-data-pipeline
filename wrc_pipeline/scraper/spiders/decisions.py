@@ -154,13 +154,16 @@ class DecisionsSpider(scrapy.Spider):
             return None
 
         doc_url = response.urljoin(href)
-        identifier = row.css("span.refNO::text").get() or row.css("h2.title a::text").get() or ""
-        title = row.css("h2.title a::text").get() or ""
+        # The result heading is the identifier (e.g. "ADJ-00047352", "MN49/2009"). The site's
+        # "Ref no" usually repeats it, but for the Employment Appeals Tribunal it is an internal number.
+        title = " ".join((row.css("h2.title a::text").get() or "").split())
+        ref_no = " ".join((row.css("span.refNO::text").get() or "").split())
         description = row.css("p.description::text").get() or row.css("p.description::attr(title)").get() or ""
         record = {
             "record_id": urlparse(doc_url).path,
-            "identifier": " ".join(identifier.split()),
-            "title": " ".join(title.split()),
+            "identifier": title or ref_no,
+            "title": title,
+            "ref_no": ref_no,
             "description": " ".join(description.split()),
             "published_date": self._parse_date(row.css("span.date::text").get()),
             "body": body_name,

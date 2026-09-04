@@ -80,11 +80,13 @@ class MongoMinioStorePipeline:
         record_id = record.pop("record_id")
         file_hash = hashlib.sha256(content).hexdigest()
         file_path = object_key(record, file_ext)
-        existing = self.landing.find_one({"_id": record_id}, {"file_hash": 1})
-        previous_hash = existing.get("file_hash") if existing else None
+        existing = self.landing.find_one({"_id": record_id}, {"file_hash": 1, "file_path": 1}) or {}
+        previous_hash = existing.get("file_hash")
 
         changed = previous_hash != file_hash
-        if changed:
+        # Upload new content, and also unchanged content whose key moved (the record
+        # was re-fetched under another partition), so file_path never points at nothing.
+        if changed or existing.get("file_path") != file_path:
             self.minio.put_object(
                 self.cfg.landing_bucket, file_path, io.BytesIO(content), length=len(content), content_type=content_type
             )

@@ -73,6 +73,7 @@ def test_search_rows_yield_fully_populated_records():
         "record_id": "/en/cases/2024/february/lcr22912.html",
         "identifier": "LCR22912",
         "title": "LCR22912",
+        "ref_no": "LCR22912",
         "description": "SONOMA VALLEY (REPRESENTED BY ANNE O'CONNELL, SOLICITOR) AND A WORKER",
         "published_date": "2024-01-30",
         "body": "labour-court",
