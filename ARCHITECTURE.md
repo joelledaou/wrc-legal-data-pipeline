@@ -12,11 +12,6 @@ identically; only the searched window is clamped. A failed month can be re-run
 alone, idempotently. `PARTITION_SIZE` switches to `weekly`/`daily` if a source ever
 publishes too densely for months.
 
-The search's pagination links expose a plain GET API, so we read the total
-count from page 1 and fan out the remaining pages concurrently. Every result
-links to an HTML case page; older records are stubs linking a PDF/DOC, which
-is stored instead.
-
 ## Retries and rate limiting
 
 Scrapy's RetryMiddleware retries transient failures (408/429/5xx, timeouts,
@@ -29,7 +24,9 @@ counted per record and logged as JSON with URL and error code, so
 number of distinct records the listing pages actually contained: the site's
 pagination is not stable between requests, so duplicate rows are skipped and
 any slice whose `listed` falls short of the site's `found` count is flagged
-with a warning for a re-run.
+with a warning for a re-run. Per-record failures do not fail the run: the
+transformation proceeds with what landed, and the failed records are picked
+up by re-running their partition.
 
 ## Deduplication strategy
 
@@ -39,12 +36,13 @@ with a warning for a re-run.
 2. **Content identity.** Every stored file carries its SHA-256, computed
    after stripping HTML comments, where the server puts per-request
    diagnostics that would otherwise make pages hash as "changed". Known
-   records are skipped without re-downloading; with `--force-refetch` the new
-   hash decides whether to re-upload; buckets are versioned, so an overwrite
-   keeps the previous object. The transformation uses the same trick
-   (`source_file_hash`) to skip unchanged inputs. Processed files are named
-   `<identifier>.<ext>`; when the site reuses an identifier, the second record
-   keeps its page name as a suffix instead of overwriting.
+   records are skipped without re-downloading, checked with one Mongo query
+   per listing page rather than one per row. With `--force-refetch` the new
+   hash decides whether to re-upload, and buckets are versioned so an
+   overwrite keeps the previous object. The transformation uses the same
+   trick (`source_file_hash`) to skip unchanged inputs. Processed files are
+   named `<identifier>.<ext>`; when the site reuses an identifier, the second
+   record keeps its page name as a suffix instead of overwriting.
 
 ## Scaling to 50+ sources
 
@@ -52,9 +50,10 @@ with a warning for a re-run.
   metadata schema, storage layout, hashing and logging stay shared.
 - **Orchestration:** Dagster partitioned assets per (source × month) give
   independent schedules, backfills and retries without new code.
-- **Decouple discovery from download:** publish discovered records to a queue
-  and let a horizontally scaled worker pool download, with per-source rate
-  budgets and batched existence checks.
+- **Decouple discovery from download:** first move storage writes off the
+  Scrapy reactor with an async item pipeline; then publish discovered records
+  to a queue and let a horizontally scaled worker pool download, with
+  per-source rate budgets.
 - **Operations:** JSON logs feed centralized alerting (e.g. on `failed/found`);
   MinIO and Mongo become S3/GCS and a managed cluster with the same client
   code; secrets move to a vault.

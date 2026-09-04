@@ -20,29 +20,26 @@ orchestrated with Dagster. Everything runs in Docker.
 
 - **Ingestion** scrapes each of the four bodies (Labour Court, WRC, Employment
   Appeals Tribunal, Equality Tribunal) using the site's start/finish date
-  filters, one search per monthly partition. Every record gets a
-  `partition_date`, its document is downloaded, hashed (SHA-256), stored in
-  the `wrc-landing` bucket, and its metadata is upserted into the
-  `decisions_landing` collection. Every search result links to an HTML case
-  page; when that page's decision content links a PDF/DOC attachment (older
-  Equality Tribunal and Employment Appeals Tribunal records), the attachment
-  is downloaded and stored as the record's document instead of the page.
-  Both buckets are versioned, so a re-fetched file that changed keeps its
-  previous version. If
-  the attachment cannot be fetched (robots.txt disallows the Equality
-  Tribunal import folder), the page is stored, the record is flagged with
-  `attachment_error`, and the run summary counts it as `attachment_unavailable`.
-- **Transformation** reads the partitions covering a date range back from
-  Mongo (so it uses the same partition size as the ingestion), strips WRC page
-  chrome from HTML files with BeautifulSoup (PDF/DOC pass through unchanged),
-  renames every file to `<identifier>.<ext>` (with the page name as a suffix
-  when two records share an identifier), writes it to the `wrc-processed`
-  bucket under the same `<body>/<partition_date>/` folder as its landing
-  object, and stores the enriched metadata (new path, new hash) in
+  filters, one search per partition (monthly by default). Every search result
+  links to an HTML case page. Usually that page is the decision and is stored
+  as `.html`. Older Equality Tribunal and Employment Appeals Tribunal pages
+  are stubs linking a PDF/DOC, which is downloaded and stored instead; if the
+  attachment cannot be fetched (robots.txt disallows the Equality Tribunal
+  import folder), the stub page is stored and the record is flagged with
+  `attachment_error`. Each document is hashed (SHA-256) and stored in the
+  `wrc-landing` bucket, and its metadata, including `partition_date`, file
+  path and hash, is upserted into the `decisions_landing` collection.
+- **Transformation** reads the same partitions back from Mongo, strips WRC
+  page chrome from HTML files with BeautifulSoup (PDF/DOC pass through
+  unchanged), renames every file to `<identifier>.<ext>` (with the page name
+  as a suffix when two records share an identifier), writes it to the
+  `wrc-processed` bucket under the same `<body>/<partition_date>/` folder,
+  and stores the enriched metadata (new path, new hash) in
   `decisions_processed`. The landing zone is never modified.
-- **Idempotency**: records are keyed by their document URL; re-running a range
-  creates no duplicates and skips files already downloaded. File hashes detect
-  content changes (`--force-refetch` re-fetches and re-compares).
+- **Idempotency**: records are keyed by their document URL, so re-running a
+  range creates no duplicates and skips records already stored. File hashes
+  detect content changes (`--force-refetch` re-fetches and re-compares), and
+  both buckets are versioned, so a changed file keeps its previous version.
 - **Logs** are structured JSON on stdout: partition/body being processed,
   found vs. listed vs. scraped counts, every failed download with URL and
   error, a warning for any partition the site listed incompletely, and a run
@@ -94,6 +91,10 @@ docker compose run --rm pipeline python -m wrc_pipeline.ingest --start-date 2024
 docker compose run --rm pipeline python -m wrc_pipeline.transform --start-date 2024-01-01 --end-date 2024-02-01
 ```
 
+Both commands accept `--partition-size`; if the ingestion used one, pass the
+same to the transformation so it reads the same partitions. Ingestion also
+accepts `--bodies` and `--force-refetch`.
+
 > January 2024 contains ~270 decisions across all bodies. Expect the first
 > ingestion to take a few minutes: the scraper is deliberately polite
 > (AutoThrottle, retries, identified User-Agent, robots.txt respected).
@@ -129,8 +130,9 @@ records and no re-downloads.
 
 ## Run the tests
 
-Unit tests cover partitioning, hash stability, document validation, HTML
-extraction and file naming. They need no running services:
+Unit tests cover partitioning, search and case page parsing (against saved
+copies of real pages in `tests/fixtures/`), hash stability, document
+validation, HTML extraction and file naming. They need no running services:
 
 ```bash
 docker compose run --rm pipeline pytest
@@ -159,8 +161,10 @@ wrc_pipeline/
     ├── settings.py            # Scrapy settings (env-driven)
     ├── items.py               # DecisionItem
     ├── pipelines.py           # hash -> MinIO upload -> Mongo upsert
+    ├── run_stats.py           # per-partition counters for the run summary
     └── spiders/decisions.py   # search + pagination + document spider
 tests/                         # pytest unit tests (no services needed)
+└── fixtures/                  # saved search and case pages from the site
 ```
 
 
