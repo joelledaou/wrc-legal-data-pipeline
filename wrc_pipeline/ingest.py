@@ -1,6 +1,6 @@
 """Scrape WRC decisions for a date range into the landing zone.
 
-    python -m wrc_pipeline.ingest --start-date 2024-01-01 --end-date 2024-02-01
+python -m wrc_pipeline.ingest --start-date 2024-01-01 --end-date 2024-02-01
 """
 
 from __future__ import annotations
@@ -45,8 +45,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--end-date", required=True, type=date.fromisoformat, help="exclusive, YYYY-MM-DD")
     parser.add_argument("--bodies", help="comma-separated subset of bodies (default: all four)")
     parser.add_argument("--partition-size", choices=PARTITION_SIZES, help="overrides PARTITION_SIZE")
-    parser.add_argument("--force-refetch", action="store_true",
-                        help="re-fetch documents we already hold and detect changes via file hash")
+    parser.add_argument(
+        "--force-refetch",
+        action="store_true",
+        help="re-fetch documents we already hold and detect changes via file hash",
+    )
     return parser.parse_args(argv)
 
 

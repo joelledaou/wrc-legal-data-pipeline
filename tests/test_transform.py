@@ -39,8 +39,14 @@ def test_extraction_falls_back_to_the_body_and_flags_short_content():
 
 def test_processed_key_renames_to_a_safe_identifier():
     def key(identifier):
-        return processed_key({"_id": "/en/cases/2024/january/adj-00047352.html", "identifier": identifier,
-                              "file_path": "labour-court/2024-01-01/adj-00047352.html"}, ".html")
+        return processed_key(
+            {
+                "_id": "/en/cases/2024/january/adj-00047352.html",
+                "identifier": identifier,
+                "file_path": "labour-court/2024-01-01/adj-00047352.html",
+            },
+            ".html",
+        )
 
     assert key("ADJ-00047352") == "labour-court/2024-01-01/ADJ-00047352.html"
     assert key("IR - SC - 00001595") == "labour-court/2024-01-01/IR-SC-00001595.html"
@@ -49,8 +55,11 @@ def test_processed_key_renames_to_a_safe_identifier():
 
 
 def test_processed_key_can_add_the_page_name_for_colliding_identifiers():
-    record = {"_id": "/en/cases/2025/january/adj-000549811.html", "identifier": "ADJ-00054981",
-              "file_path": "workplace-relations-commission/2025-01-29/adj-000549811.html"}
+    record = {
+        "_id": "/en/cases/2025/january/adj-000549811.html",
+        "identifier": "ADJ-00054981",
+        "file_path": "workplace-relations-commission/2025-01-29/adj-000549811.html",
+    }
 
     assert processed_key(record, ".html", with_slug=True) == (
         "workplace-relations-commission/2025-01-29/ADJ-00054981-adj-000549811.html"

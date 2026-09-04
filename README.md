@@ -131,6 +131,7 @@ extraction and file naming. They need no running services:
 
 ```bash
 docker compose run --rm pipeline pytest
+docker compose run --rm pipeline ruff check .
 ```
 
 ## Configuration

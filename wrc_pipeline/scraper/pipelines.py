@@ -16,7 +16,7 @@ import io
 import logging
 import posixpath
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from itemadapter import ItemAdapter
@@ -64,8 +64,14 @@ class MongoMinioStorePipeline:
             self.crawler.spider.run_stats.add_failure(
                 record["partition_label"], record["body"], record["doc_url"], error, record["identifier"]
             )
-            log_event(logger, "store_failed", level=logging.ERROR,
-                      identifier=record["identifier"], url=record["doc_url"], error=str(exc))
+            log_event(
+                logger,
+                "store_failed",
+                level=logging.ERROR,
+                identifier=record["identifier"],
+                url=record["doc_url"],
+                error=str(exc),
+            )
             raise DropItem(f"storage failed for {record['identifier']}: {exc}") from exc
         return item
 
@@ -79,13 +85,14 @@ class MongoMinioStorePipeline:
 
         changed = previous_hash != file_hash
         if changed:
-            self.minio.put_object(self.cfg.landing_bucket, file_path, io.BytesIO(content),
-                                  length=len(content), content_type=content_type)
+            self.minio.put_object(
+                self.cfg.landing_bucket, file_path, io.BytesIO(content), length=len(content), content_type=content_type
+            )
             stats.downloaded += 1
         else:
             stats.unchanged += 1
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         self.landing.update_one(
             {"_id": record_id},
             {
@@ -103,9 +110,18 @@ class MongoMinioStorePipeline:
             },
             upsert=True,
         )
-        log_event(logger, "record_stored", level=logging.DEBUG,
-                  identifier=record["identifier"], partition=record["partition_label"], body=record["body"],
-                  file_path=file_path, file_hash=file_hash, previous_hash=previous_hash, changed=changed)
+        log_event(
+            logger,
+            "record_stored",
+            level=logging.DEBUG,
+            identifier=record["identifier"],
+            partition=record["partition_label"],
+            body=record["body"],
+            file_path=file_path,
+            file_hash=file_hash,
+            previous_hash=previous_hash,
+            changed=changed,
+        )
 
 
 def object_key(record: dict, file_ext: str) -> str:

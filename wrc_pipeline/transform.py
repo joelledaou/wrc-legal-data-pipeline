@@ -24,7 +24,7 @@ import logging
 import posixpath
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from bs4 import BeautifulSoup
 
@@ -34,8 +34,18 @@ from wrc_pipeline.storage import ensure_bucket, get_minio_client, get_mongo_coll
 
 logger = logging.getLogger("wrc.transform")
 
-CHROME_SELECTORS = ["header", "footer", "nav", "script", "noscript", "style", "iframe",
-                    "#globalCookieBar", ".social-banner", "#skippy"]
+CHROME_SELECTORS = [
+    "header",
+    "footer",
+    "nav",
+    "script",
+    "noscript",
+    "style",
+    "iframe",
+    "#globalCookieBar",
+    ".social-banner",
+    "#skippy",
+]
 BACK_LINK_RE = re.compile(r"Return to Search", re.I)
 
 
@@ -74,8 +84,15 @@ def transform_range(start_date: date, end_date: date) -> dict:
             other = processed.find_one({"file_path": key, "_id": {"$ne": record["_id"]}}, {"_id": 1})
             if other:
                 key = processed_key(record, extension, with_slug=True)
-                log_event(logger, "identifier_collision", level=logging.WARNING,
-                          id=record["_id"], identifier=record.get("identifier"), other_id=other["_id"], file_path=key)
+                log_event(
+                    logger,
+                    "identifier_collision",
+                    level=logging.WARNING,
+                    id=record["_id"],
+                    identifier=record.get("identifier"),
+                    other_id=other["_id"],
+                    file_path=key,
+                )
 
             already = processed.find_one({"_id": record["_id"]}, {"source_file_hash": 1, "file_path": 1})
             if (
@@ -97,8 +114,9 @@ def transform_range(start_date: date, end_date: date) -> dict:
                 content_type = record.get("content_type", "application/octet-stream")
                 stats["passed_through"] += 1
 
-            minio.put_object(cfg.processed_bucket, key, io.BytesIO(content), length=len(content),
-                             content_type=content_type)
+            minio.put_object(
+                cfg.processed_bucket, key, io.BytesIO(content), length=len(content), content_type=content_type
+            )
             new_record = {
                 **{k: v for k, v in record.items() if k != "_id"},
                 "file_bucket": cfg.processed_bucket,
@@ -109,16 +127,28 @@ def transform_range(start_date: date, end_date: date) -> dict:
                 "source_file_path": record["file_path"],
                 "source_file_hash": record["file_hash"],
                 "quality": quality,
-                "transformed_at": datetime.now(timezone.utc).isoformat(),
+                "transformed_at": datetime.now(UTC).isoformat(),
             }
             processed.update_one({"_id": record["_id"]}, {"$set": new_record}, upsert=True)
-            log_event(logger, "record_transformed", level=logging.DEBUG,
-                      identifier=record.get("identifier"), file_path=key, extraction=quality["extraction"])
+            log_event(
+                logger,
+                "record_transformed",
+                level=logging.DEBUG,
+                identifier=record.get("identifier"),
+                file_path=key,
+                extraction=quality["extraction"],
+            )
         except Exception as exc:
             stats["failed"] += 1
             failures.append({"id": record["_id"], "identifier": record.get("identifier"), "error": str(exc)})
-            log_event(logger, "transform_failed", level=logging.ERROR,
-                      id=record["_id"], identifier=record.get("identifier"), error=str(exc))
+            log_event(
+                logger,
+                "transform_failed",
+                level=logging.ERROR,
+                id=record["_id"],
+                identifier=record.get("identifier"),
+                error=str(exc),
+            )
 
     log_event(logger, "transform_summary", **stats, failures=failures)
     return stats

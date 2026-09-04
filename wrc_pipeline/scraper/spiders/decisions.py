@@ -32,7 +32,7 @@ import math
 import posixpath
 import re
 import zipfile
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import scrapy
@@ -95,8 +95,13 @@ class DecisionsSpider(scrapy.Spider):
         self._minio = get_minio_client(self.cfg)
 
     async def start(self):
-        log_event(logger, "run_start", partitions=[p.label for p in self.partitions],
-                  bodies=list(self.bodies), force_refetch=self.force_refetch)
+        log_event(
+            logger,
+            "run_start",
+            partitions=[p.label for p in self.partitions],
+            bodies=list(self.bodies),
+            force_refetch=self.force_refetch,
+        )
         for partition in self.partitions:
             for body_name, body_id in self.bodies.items():
                 yield self._search_request(partition, body_name, body_id, page=1)
@@ -106,9 +111,15 @@ class DecisionsSpider(scrapy.Spider):
             match = RESULT_COUNT_RE.search(response.text)
             total = int(match.group(1).replace(",", "")) if match else 0
             self.run_stats.slice(partition.label, body_name).found = total
-            log_event(logger, "partition_search", partition=partition.label, body=body_name,
-                      date_from=partition.start.isoformat(), date_to=partition.end.isoformat(),
-                      results_found=total)
+            log_event(
+                logger,
+                "partition_search",
+                partition=partition.label,
+                body=body_name,
+                date_from=partition.start.isoformat(),
+                date_to=partition.end.isoformat(),
+                results_found=total,
+            )
             last_page = math.ceil(total / self.cfg.results_per_page)
             for extra_page in range(2, last_page + 1):
                 yield self._search_request(partition, body_name, body_id, extra_page)
@@ -120,8 +131,14 @@ class DecisionsSpider(scrapy.Spider):
         href = row.css("h2.title a::attr(href)").get() or row.css(".link a::attr(href)").get()
         if not href:
             self.run_stats.add_failure(partition.label, body_name, response.url, "result row without document link")
-            log_event(logger, "record_parse_failed", level=logging.WARNING,
-                      partition=partition.label, body=body_name, url=response.url)
+            log_event(
+                logger,
+                "record_parse_failed",
+                level=logging.WARNING,
+                partition=partition.label,
+                body=body_name,
+                url=response.url,
+            )
             return
 
         doc_url = response.urljoin(href)
@@ -151,12 +168,13 @@ class DecisionsSpider(scrapy.Spider):
             stats.skipped += 1
             self._landing.update_one(
                 {"_id": record["record_id"]},
-                {"$set": {"last_seen_at": datetime.now(timezone.utc).isoformat()}},
+                {"$set": {"last_seen_at": datetime.now(UTC).isoformat()}},
             )
             return
 
-        yield scrapy.Request(doc_url, callback=self.parse_document, errback=self.on_document_error,
-                             cb_kwargs={"record": record})
+        yield scrapy.Request(
+            doc_url, callback=self.parse_document, errback=self.on_document_error, cb_kwargs={"record": record}
+        )
 
     def parse_document(self, response, record: dict, page_response=None):
         """Store the fetched document, or follow its PDF/DOC attachment first.
@@ -169,7 +187,10 @@ class DecisionsSpider(scrapy.Spider):
         file_ext = self._file_extension(response)
         if file_ext is None:
             self._reject_document(
-                response, record, "unsupported_document_type", logging.WARNING,
+                response,
+                record,
+                "unsupported_document_type",
+                logging.WARNING,
                 error=f"unsupported document type (Content-Type: {content_type or 'missing'})",
                 content_type=content_type,
             )
@@ -179,9 +200,16 @@ class DecisionsSpider(scrapy.Spider):
             attachment_url = self._attachment_url(response)
             if attachment_url:
                 # The page is a stub. It travels along so it can be stored if the attachment fails.
-                log_event(logger, "attachment_found", level=logging.DEBUG,
-                          partition=record["partition_label"], body=record["body"],
-                          identifier=record["identifier"], page_url=response.url, url=attachment_url)
+                log_event(
+                    logger,
+                    "attachment_found",
+                    level=logging.DEBUG,
+                    partition=record["partition_label"],
+                    body=record["body"],
+                    identifier=record["identifier"],
+                    page_url=response.url,
+                    url=attachment_url,
+                )
                 yield scrapy.Request(
                     attachment_url,
                     callback=self.parse_document,
@@ -192,9 +220,16 @@ class DecisionsSpider(scrapy.Spider):
                 return
             content_chars = self._content_chars(response)
             if content_chars < MIN_CONTENT_CHARS:
-                log_event(logger, "page_without_decision_content", level=logging.WARNING,
-                          partition=record["partition_label"], body=record["body"],
-                          identifier=record["identifier"], url=response.url, content_chars=content_chars)
+                log_event(
+                    logger,
+                    "page_without_decision_content",
+                    level=logging.WARNING,
+                    partition=record["partition_label"],
+                    body=record["body"],
+                    identifier=record["identifier"],
+                    url=response.url,
+                    content_chars=content_chars,
+                )
 
         yield from self._document_item(response, record, file_ext, content_type)
 
@@ -202,30 +237,51 @@ class DecisionsSpider(scrapy.Spider):
         problem = self._content_problem(response.body, file_ext)
         if problem:
             self._reject_document(
-                response, record, "corrupt_document", logging.ERROR,
+                response,
+                record,
+                "corrupt_document",
+                logging.ERROR,
                 error=f"corrupt {file_ext} document: {problem}",
-                content_type=content_type, file_ext=file_ext, size=len(response.body),
+                content_type=content_type,
+                file_ext=file_ext,
+                size=len(response.body),
             )
             return
-        yield DecisionItem(**record, file_url=response.url, content=response.body,
-                           content_type=content_type, file_ext=file_ext)
+        yield DecisionItem(
+            **record, file_url=response.url, content=response.body, content_type=content_type, file_ext=file_ext
+        )
 
     def on_search_error(self, failure):
         kwargs = failure.request.cb_kwargs
         partition, body_name = kwargs["partition"], kwargs["body_name"]
         error = self._describe_failure(failure)
         self.run_stats.add_failure(partition.label, body_name, failure.request.url, f"search page failed: {error}")
-        log_event(logger, "search_page_failed", level=logging.ERROR,
-                  partition=partition.label, body=body_name, url=failure.request.url, error=error)
+        log_event(
+            logger,
+            "search_page_failed",
+            level=logging.ERROR,
+            partition=partition.label,
+            body=body_name,
+            url=failure.request.url,
+            error=error,
+        )
 
     def on_document_error(self, failure):
         record = failure.request.cb_kwargs["record"]
         error = self._describe_failure(failure)
-        self.run_stats.add_failure(record["partition_label"], record["body"], failure.request.url, error,
-                                   record["identifier"])
-        log_event(logger, "download_failed", level=logging.WARNING,
-                  partition=record["partition_label"], body=record["body"],
-                  identifier=record["identifier"], url=failure.request.url, error=error)
+        self.run_stats.add_failure(
+            record["partition_label"], record["body"], failure.request.url, error, record["identifier"]
+        )
+        log_event(
+            logger,
+            "download_failed",
+            level=logging.WARNING,
+            partition=record["partition_label"],
+            body=record["body"],
+            identifier=record["identifier"],
+            url=failure.request.url,
+            error=error,
+        )
 
     def on_attachment_error(self, failure):
         """Keep the record by storing the stub page, flagged with the reason."""
@@ -233,9 +289,17 @@ class DecisionsSpider(scrapy.Spider):
         page = failure.request.cb_kwargs["page_response"]
         error = self._describe_failure(failure)
         self.run_stats.slice(record["partition_label"], record["body"]).attachment_unavailable += 1
-        log_event(logger, "attachment_unavailable", level=logging.WARNING,
-                  partition=record["partition_label"], body=record["body"],
-                  identifier=record["identifier"], url=failure.request.url, page_url=page.url, error=error)
+        log_event(
+            logger,
+            "attachment_unavailable",
+            level=logging.WARNING,
+            partition=record["partition_label"],
+            body=record["body"],
+            identifier=record["identifier"],
+            url=failure.request.url,
+            page_url=page.url,
+            error=error,
+        )
         page_content_type = (page.headers.get("Content-Type") or b"").decode("latin-1")
         yield from self._document_item(page, {**record, "attachment_error": error}, ".html", page_content_type)
 
@@ -243,10 +307,16 @@ class DecisionsSpider(scrapy.Spider):
         summary = self.run_stats.summary()
         for stats in summary["slices"]:
             if stats["missing_from_listing"]:
-                log_event(logger, "listing_incomplete", level=logging.WARNING,
-                          partition=stats["partition"], body=stats["body"],
-                          found=stats["found"], listed=stats["listed"],
-                          error="site listed fewer distinct records than its result count; re-run this partition")
+                log_event(
+                    logger,
+                    "listing_incomplete",
+                    level=logging.WARNING,
+                    partition=stats["partition"],
+                    body=stats["body"],
+                    found=stats["found"],
+                    listed=stats["listed"],
+                    error="site listed fewer distinct records than its result count; re-run this partition",
+                )
         log_event(logger, "run_summary", reason=reason, **summary)
 
     def _search_request(self, partition: Partition, body_name: str, body_id: int, page: int) -> scrapy.Request:
@@ -290,10 +360,18 @@ class DecisionsSpider(scrapy.Spider):
         return CONTENT_TYPE_EXT.get(content_type.lower())
 
     def _reject_document(self, response, record: dict, event: str, level: int, error: str, **fields):
-        self.run_stats.add_failure(record["partition_label"], record["body"], response.url, error,
-                                   record["identifier"])
-        log_event(logger, event, level=level, partition=record["partition_label"], body=record["body"],
-                  identifier=record["identifier"], url=response.url, error=error, **fields)
+        self.run_stats.add_failure(record["partition_label"], record["body"], response.url, error, record["identifier"])
+        log_event(
+            logger,
+            event,
+            level=level,
+            partition=record["partition_label"],
+            body=record["body"],
+            identifier=record["identifier"],
+            url=response.url,
+            error=error,
+            **fields,
+        )
 
     def _attachment_url(self, response) -> str | None:
         """PDF/DOC linked from the decision content column, if any.

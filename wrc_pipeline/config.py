@@ -22,11 +22,14 @@ WRC_BODIES = {
 DECISION_CONTENT_SELECTORS = ("div.container.mb-4 div.col-sm-9", "div.container.mb-4")
 
 
+TRUE_VALUES = ("1", "true", "yes", "on")
+
+
 # Defined before Settings because dataclass field defaults are evaluated at class creation.
 def _env(name: str, default):
     """Dataclass field read from the environment, cast to the default's type."""
     if isinstance(default, bool):
-        return field(default_factory=lambda: os.getenv(name, str(default)).strip().lower() in ("1", "true", "yes", "on"))
+        return field(default_factory=lambda: os.getenv(name, str(default)).strip().lower() in TRUE_VALUES)
     return field(default_factory=lambda: type(default)(os.getenv(name, str(default))))
 
 

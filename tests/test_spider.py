@@ -17,8 +17,7 @@ PARTITION = Partition("2024-01", date(2024, 1, 1), date(2024, 1, 31))
 
 def make_spider() -> DecisionsSpider:
     # force_refetch bypasses the "already stored?" lookup, so no database is needed.
-    return DecisionsSpider(start_date="2024-01-01", end_date="2024-02-01", bodies="labour-court",
-                           force_refetch="true")
+    return DecisionsSpider(start_date="2024-01-01", end_date="2024-02-01", bodies="labour-court", force_refetch="true")
 
 
 def load(fixture: str, url: str) -> HtmlResponse:
@@ -44,8 +43,11 @@ def test_search_rows_yield_fully_populated_records():
     spider = make_spider()
     response = load("search_page1.html", f"{BASE_URL}/en/search/?decisions=1&body=3&pageNumber=1")
 
-    requests = [r for r in spider.parse_search_page(response, PARTITION, "labour-court", 3, page=1)
-                if r.callback == spider.parse_document]
+    requests = [
+        r
+        for r in spider.parse_search_page(response, PARTITION, "labour-court", 3, page=1)
+        if r.callback == spider.parse_document
+    ]
 
     assert requests[0].cb_kwargs["record"] == {
         "record_id": "/en/cases/2024/february/lcr22912.html",

@@ -15,5 +15,11 @@ def test_summary_reports_records_missing_from_an_unstable_listing():
     assert summary["totals"]["scraped"] == 44
     assert summary["totals"]["failed"] == 1
     assert summary["failures"] == [
-        {"partition": "2024-02", "body": "labour-court", "url": "https://example/x", "error": "HTTP 500", "identifier": "LCR1"}
+        {
+            "partition": "2024-02",
+            "body": "labour-court",
+            "url": "https://example/x",
+            "error": "HTTP 500",
+            "identifier": "LCR1",
+        }
     ]

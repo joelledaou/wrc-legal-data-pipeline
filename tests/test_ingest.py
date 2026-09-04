@@ -6,7 +6,9 @@ from wrc_pipeline.scraper.spiders.decisions import DecisionsSpider
 
 def test_hash_ignores_server_comments():
     first = b"<html><body>decision</body></html><!-- Elapsed time: 12ms -->"
-    second = b"<!-- cached or not being index.aspx page --><html><body>decision</body></html><!-- Elapsed time: 98ms -->"
+    second = (
+        b"<!-- cached or not being index.aspx page --><html><body>decision</body></html><!-- Elapsed time: 98ms -->"
+    )
 
     hashes = {hashlib.sha256(HTML_COMMENT_RE.sub(b"", page)).hexdigest() for page in (first, second)}
 
