@@ -20,6 +20,26 @@ def make_spider() -> DecisionsSpider:
     return DecisionsSpider(start_date="2024-01-01", end_date="2024-02-01", bodies="labour-court", force_refetch="true")
 
 
+class FakeCollection:
+    def __init__(self, docs):
+        self.docs, self.updated = docs, []
+
+    def find(self, query, projection):
+        return [d for d in self.docs if d["_id"] in query["_id"]["$in"]]
+
+    def update_many(self, query, update):
+        self.updated.append(sorted(query["_id"]["$in"]))
+
+
+class FakeMinio:
+    def __init__(self, names):
+        self.names, self.calls = names, 0
+
+    def list_objects(self, bucket, prefix):
+        self.calls += 1
+        return [type("Obj", (), {"object_name": n})() for n in self.names if n.startswith(prefix)]
+
+
 def load(fixture: str, url: str) -> HtmlResponse:
     return HtmlResponse(url=url, body=(FIXTURES / fixture).read_bytes(), encoding="utf-8")
 
@@ -104,3 +124,25 @@ def test_html_decision_page_becomes_the_document_itself():
     assert item["file_url"] == response.url
     assert item["content"] == response.body
     assert "attachment_url" not in item  # the header/footer PDFs (cookie policy, search guide) are ignored
+
+
+def test_held_records_are_skipped_with_one_lookup_per_page_and_one_listing_per_slice():
+    spider = DecisionsSpider(start_date="2024-01-01", end_date="2024-02-01", bodies="labour-court")
+    spider._landing = FakeCollection(
+        [
+            {"_id": "/a", "file_hash": "h", "file_path": "labour-court/2024-01-01/a.html"},
+            {"_id": "/b", "file_hash": "h", "file_path": "labour-court/2024-01-01/b.html"},  # file missing in MinIO
+            {"_id": "/c"},  # metadata without a stored file
+        ]
+    )
+    spider._minio = FakeMinio(["labour-court/2024-01-01/a.html", "labour-court/2023-12-01/old.html"])
+    records = [{"record_id": rid} for rid in ("/a", "/b", "/c", "/d")]
+
+    first = spider._unstored(records, PARTITION, "labour-court")
+    second = spider._unstored(records[:1], PARTITION, "labour-court")
+
+    assert [r["record_id"] for r in first] == ["/b", "/c", "/d"]
+    assert second == []
+    assert spider._landing.updated == [["/a"], ["/a"]]
+    assert spider._minio.calls == 1
+    assert spider.run_stats.slice("2024-01", "labour-court").skipped == 2

@@ -21,7 +21,9 @@ page is stored and the record is flagged with `attachment_error`.
 
 Records are keyed by document URL path. Anything we already hold is skipped
 unless force_refetch is set, in which case the file hash decides whether the
-content changed.
+content changed. The "already held?" check is one Mongo query per listing page
+and one MinIO listing per (partition, body) slice, not one call per row, so
+the reactor is not blocked on storage round trips.
 """
 
 from __future__ import annotations
@@ -43,7 +45,7 @@ from wrc_pipeline.logging_utils import log_event
 from wrc_pipeline.partitions import Partition, build_partitions
 from wrc_pipeline.scraper.items import DecisionItem
 from wrc_pipeline.scraper.run_stats import RunStats
-from wrc_pipeline.storage import get_minio_client, get_mongo_collection, object_exists
+from wrc_pipeline.storage import get_minio_client, get_mongo_collection
 
 logger = logging.getLogger("wrc.ingest")
 
@@ -90,6 +92,7 @@ class DecisionsSpider(scrapy.Spider):
         )
         self.run_stats = RunStats()
         self._seen_ids: set[str] = set()
+        self._stored_files: dict[tuple[str, str], set[str]] = {}  # per slice, listed once
         # Only for the skip check and last_seen touch. The item pipeline owns document writes.
         self._landing = get_mongo_collection(self.cfg, self.cfg.landing_collection)
         self._minio = get_minio_client(self.cfg)
@@ -124,10 +127,19 @@ class DecisionsSpider(scrapy.Spider):
             for extra_page in range(2, last_page + 1):
                 yield self._search_request(partition, body_name, body_id, extra_page)
 
-        for row in response.css("#searchResult .each-item"):
-            yield from self._handle_result_row(row, response, partition, body_name)
+        records = [
+            self._result_record(row, response, partition, body_name) for row in response.css("#searchResult .each-item")
+        ]
+        for record in self._unstored([r for r in records if r is not None], partition, body_name):
+            yield scrapy.Request(
+                record["doc_url"],
+                callback=self.parse_document,
+                errback=self.on_document_error,
+                cb_kwargs={"record": record},
+            )
 
-    def _handle_result_row(self, row, response, partition: Partition, body_name: str):
+    def _result_record(self, row, response, partition: Partition, body_name: str) -> dict | None:
+        """Metadata from one listing row, or None if the row is unusable or repeats a record seen this run."""
         href = row.css("h2.title a::attr(href)").get() or row.css(".link a::attr(href)").get()
         if not href:
             self.run_stats.add_failure(partition.label, body_name, response.url, "result row without document link")
@@ -139,7 +151,7 @@ class DecisionsSpider(scrapy.Spider):
                 body=body_name,
                 url=response.url,
             )
-            return
+            return None
 
         doc_url = response.urljoin(href)
         identifier = row.css("span.refNO::text").get() or row.css("h2.title a::text").get() or ""
@@ -160,21 +172,41 @@ class DecisionsSpider(scrapy.Spider):
         stats = self.run_stats.slice(partition.label, body_name)
         if record["record_id"] in self._seen_ids:
             stats.duplicate_rows += 1
-            return
+            return None
         self._seen_ids.add(record["record_id"])
         stats.listed += 1
+        return record
 
-        if not self.force_refetch and self._already_stored(record["record_id"]):
-            stats.skipped += 1
-            self._landing.update_one(
-                {"_id": record["record_id"]},
-                {"$set": {"last_seen_at": datetime.now(UTC).isoformat()}},
+    def _unstored(self, records: list[dict], partition: Partition, body_name: str) -> list[dict]:
+        """The records we do not hold yet (metadata with a hash in Mongo and the file in MinIO).
+
+        One query and one update per page: held records only get `last_seen_at` touched.
+        """
+        if self.force_refetch or not records:
+            return records
+        stored_files = self._slice_files(partition, body_name)
+        held = {
+            doc["_id"]
+            for doc in self._landing.find(
+                {"_id": {"$in": [r["record_id"] for r in records]}}, {"file_hash": 1, "file_path": 1}
             )
-            return
+            if doc.get("file_hash") and doc.get("file_path") in stored_files
+        }
+        if held:
+            self._landing.update_many(
+                {"_id": {"$in": list(held)}}, {"$set": {"last_seen_at": datetime.now(UTC).isoformat()}}
+            )
+            self.run_stats.slice(partition.label, body_name).skipped += len(held)
+        return [r for r in records if r["record_id"] not in held]
 
-        yield scrapy.Request(
-            doc_url, callback=self.parse_document, errback=self.on_document_error, cb_kwargs={"record": record}
-        )
+    def _slice_files(self, partition: Partition, body_name: str) -> set[str]:
+        """Object keys already in the landing bucket for this slice, listed once and cached."""
+        key = (partition.label, body_name)
+        if key not in self._stored_files:
+            prefix = f"{body_name}/{partition.period_start.isoformat()}/"
+            objects = self._minio.list_objects(self.cfg.landing_bucket, prefix=prefix)
+            self._stored_files[key] = {o.object_name for o in objects}
+        return self._stored_files[key]
 
     def parse_document(self, response, record: dict, page_response=None):
         """Store the fetched document, or follow its PDF/DOC attachment first.
@@ -332,16 +364,6 @@ class DecisionsSpider(scrapy.Spider):
             callback=self.parse_search_page,
             errback=self.on_search_error,
             cb_kwargs={"partition": partition, "body_name": body_name, "body_id": body_id, "page": page},
-        )
-
-    def _already_stored(self, record_id: str) -> bool:
-        """True if the record is in Mongo with a hash and its file is in MinIO."""
-        existing = self._landing.find_one({"_id": record_id}, {"file_hash": 1, "file_path": 1})
-        return bool(
-            existing
-            and existing.get("file_hash")
-            and existing.get("file_path")
-            and object_exists(self._minio, self.cfg.landing_bucket, existing["file_path"])
         )
 
     @staticmethod
