@@ -40,7 +40,8 @@ with a warning for a re-run.
    after stripping HTML comments, where the server puts per-request
    diagnostics that would otherwise make pages hash as "changed". Known
    records are skipped without re-downloading; with `--force-refetch` the new
-   hash decides whether to re-upload. The transformation uses the same trick
+   hash decides whether to re-upload; buckets are versioned, so an overwrite
+   keeps the previous object. The transformation uses the same trick
    (`source_file_hash`) to skip unchanged inputs. Processed files are named
    `<identifier>.<ext>`; when the site reuses an identifier, the second record
    keeps its page name as a suffix instead of overwriting.

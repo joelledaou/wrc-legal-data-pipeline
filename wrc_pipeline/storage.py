@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from minio import Minio
+from minio.versioningconfig import ENABLED, VersioningConfig
 from pymongo import MongoClient
 from pymongo.collection import Collection
 
@@ -29,8 +30,11 @@ def get_minio_client(settings: Settings) -> Minio:
 
 
 def ensure_bucket(client: Minio, bucket: str) -> None:
+    """Create the bucket if needed, with versioning on so overwrites keep the previous object."""
     if not client.bucket_exists(bucket):
         client.make_bucket(bucket)
+    if client.get_bucket_versioning(bucket).status != ENABLED:
+        client.set_bucket_versioning(bucket, VersioningConfig(ENABLED))
 
 
 def get_object(client: Minio, bucket: str, key: str) -> bytes:

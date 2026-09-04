@@ -26,7 +26,9 @@ orchestrated with Dagster. Everything runs in Docker.
   `decisions_landing` collection. Every search result links to an HTML case
   page; when that page's decision content links a PDF/DOC attachment (older
   Equality Tribunal and Employment Appeals Tribunal records), the attachment
-  is downloaded and stored as the record's document instead of the page. If
+  is downloaded and stored as the record's document instead of the page.
+  Both buckets are versioned, so a re-fetched file that changed keeps its
+  previous version. If
   the attachment cannot be fetched (robots.txt disallows the Equality
   Tribunal import folder), the page is stored, the record is flagged with
   `attachment_error`, and the run summary counts it as `attachment_unavailable`.
