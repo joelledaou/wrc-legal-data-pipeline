@@ -12,7 +12,7 @@ from wrc_pipeline.scraper.spiders.decisions import DecisionsSpider
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BASE_URL = "https://www.workplacerelations.ie"
-PARTITION = Partition("2024-01", date(2024, 1, 1), date(2024, 1, 31))
+PARTITION = Partition("2024-01", date(2024, 1, 1), date(2024, 1, 1), date(2024, 1, 31))
 
 
 def make_spider() -> DecisionsSpider:

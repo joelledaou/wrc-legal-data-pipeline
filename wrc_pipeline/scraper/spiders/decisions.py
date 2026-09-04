@@ -153,7 +153,7 @@ class DecisionsSpider(scrapy.Spider):
             "published_date": self._parse_date(row.css("span.date::text").get()),
             "body": body_name,
             "doc_url": doc_url,
-            "partition_date": partition.start.isoformat(),
+            "partition_date": partition.period_start.isoformat(),
             "partition_label": partition.label,
         }
 

@@ -6,8 +6,10 @@ The scraper slices the requested range into calendar months and runs one
 search per (month × body). The busiest body (WRC) publishes a few hundred
 decisions per month, so every slice stays well under the search UI's
 pagination depth while keeping the number of search requests small (12 × 4
-per year, vs. ~370 × 4 for daily). A failed month can be re-run alone,
-idempotently. `PARTITION_SIZE` switches to `weekly`/`daily` if a source ever
+per year, vs. ~370 × 4 for daily). Partitions are calendar periods and
+records are stamped with the period start, so overlapping runs file a record
+identically; only the searched window is clamped. A failed month can be re-run
+alone, idempotently. `PARTITION_SIZE` switches to `weekly`/`daily` if a source ever
 publishes too densely for months.
 
 The search's pagination links expose a plain GET API, so we read the total
